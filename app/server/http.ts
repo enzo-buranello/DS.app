@@ -20,9 +20,6 @@ import { CodexAdapter } from '../../connectors/agents/codex.js';
 import { unvalidatedAdapter } from '../../connectors/agents/unvalidated.js';
 import { ClaudeAdapter } from '../../connectors/agents/claude.js';
 import type { AgentAdapter } from '../../connectors/agents/types.js';
-import { FigmaBridge } from './figma.js';
-import { defaultVault, FigmaAccount, figmaFileKey } from './figmaAccount.js';
-import { exportSummarySchema, nativeExportSchema } from '../shared/figma.js';
 import type { RecordInfo } from '../../scripts/runtime.mjs';
 
 export async function createStudioServer(options: {
@@ -30,7 +27,6 @@ export async function createStudioServer(options: {
   store: Store;
   agent?: AgentAdapter;
   claude?: AgentAdapter;
-  figmaAccount?: FigmaAccount;
   dev?: boolean;
   control?: { record: RecordInfo; stop: () => void };
 }) {
@@ -42,10 +38,6 @@ export async function createStudioServer(options: {
   };
   const project = new ProjectStore(store.directory);
   const components = new ComponentStore(store.directory);
-  const figma = new FigmaBridge(store.directory);
-  await figma.init();
-  const account =
-    options.figmaAccount ?? new FigmaAccount(defaultVault(store.directory));
   const csrf = randomBytes(32).toString('hex');
   let busy = false;
   const active = new Set<AbortController>();
@@ -85,36 +77,6 @@ export async function createStudioServer(options: {
           403,
         );
       const url0 = new URL(req.url ?? '/', origin);
-      // Plugin Figma : origine « null », authentifié par le code d'appairage.
-      if (url0.pathname.startsWith('/plugin/figma/'))
-        return await figma.handle(req, res, url0);
-      // Retour OAuth : navigation depuis figma.com (donc « cross-site »),
-      // protégée par le state à usage unique et le vérificateur PKCE.
-      if (
-        url0.pathname === '/api/figma/oauth/callback' &&
-        req.method === 'GET'
-      ) {
-        let message =
-          'Figma connecté. Vous pouvez fermer cet onglet et revenir à DS-Studio.';
-        try {
-          const error = url0.searchParams.get('error');
-          if (error) throw new StudioError('Connexion Figma annulée.');
-          await account.callback(
-            url0.searchParams.get('code') ?? '',
-            url0.searchParams.get('state') ?? '',
-          );
-        } catch (e) {
-          message =
-            e instanceof StudioError
-              ? e.message
-              : 'Connexion Figma impossible.';
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(
-          `<!doctype html><meta charset="utf-8"><title>DS-Studio · Figma</title><body style="font:16px system-ui;padding:40px"><p>${message.replace(/[<>&"]/g, '')}</p></body>`,
-        );
-        return;
-      }
       if (req.headers.origin && req.headers.origin !== origin)
         throw new StudioError('Origine non autorisée.', 403);
       if (req.headers['sec-fetch-site'] === 'cross-site')
@@ -159,20 +121,6 @@ export async function createStudioServer(options: {
           if (url.pathname === '/api/components')
             return send(200, await components.read());
           if (url.pathname === '/api/state') return send(200, store.snapshot());
-          if (url.pathname === '/api/figma')
-            return send(200, {
-              pairCode: figma.pairCode,
-              live: figma.liveStatus,
-              account: await account.status(),
-              selection: await figma.selection(),
-            });
-          if (url.pathname === '/api/figma/oauth/start') {
-            res.writeHead(302, {
-              Location: account.start(`${origin}/api/figma/oauth/callback`),
-            });
-            res.end();
-            return;
-          }
           if (url.pathname === '/api/export')
             return send(200, store.snapshot().tokens);
           throw new StudioError('Route inconnue.', 404);
@@ -191,12 +139,7 @@ export async function createStudioServer(options: {
         for await (const chunk of req) {
           size += chunk.length;
           if (
-            size >
-            (url.pathname === '/api/import/image'
-              ? 6_000_000
-              : url.pathname === '/api/figma/export'
-                ? 3_000_000
-                : 128_000)
+            size > (url.pathname === '/api/import/image' ? 6_000_000 : 128_000)
           )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
@@ -222,110 +165,6 @@ export async function createStudioServer(options: {
         if (url.pathname === '/api/components/delete') {
           const b = z.object({ id: z.string().uuid() }).strict().parse(body);
           return send(200, await components.remove(b.id));
-        }
-        if (url.pathname === '/api/figma/logout') {
-          await account.logout();
-          return send(200, await account.status());
-        }
-        // Fichier choisi par son lien : nom, pages et droits lus par l'API REST.
-        if (url.pathname === '/api/figma/file') {
-          const b = z
-            .object({ url: z.string().max(500) })
-            .strict()
-            .parse(body);
-          const fileKey = figmaFileKey(b.url);
-          if (!fileKey)
-            throw new StudioError(
-              'Lien Figma non reconnu (https://www.figma.com/design/… attendu).',
-            );
-          const file = await account.file(fileKey);
-          const previous = await figma.selection();
-          const page = file.pages.find((p) => p.id === previous.pageId) ?? null;
-          const selection = await figma.saveSelection({
-            fileUrl: b.url.trim(),
-            fileKey,
-            fileName: file.name,
-            pageId: page?.id ?? '',
-            pageName: page?.name ?? '',
-          });
-          return send(200, { ...file, fileKey, selection });
-        }
-        if (url.pathname === '/api/figma/page') {
-          const b = z
-            .object({
-              pageId: z.string().max(80),
-              pageName: z.string().max(200),
-            })
-            .strict()
-            .parse(body);
-          const current = await figma.selection();
-          if (!current.fileKey)
-            throw new StudioError('Choisissez d’abord un fichier Figma.');
-          return send(200, await figma.saveSelection({ ...current, ...b }));
-        }
-        if (url.pathname === '/api/figma/export') {
-          const b = nativeExportSchema.parse(body);
-          const target = await figma.selection();
-          if (!target.fileKey || !target.pageId)
-            throw new StudioError(
-              'Choisissez le fichier et la page Figma cibles.',
-            );
-          // Droits relus avant l'envoi : un lecteur ne peut pas écrire.
-          const file = await account.file(target.fileKey);
-          if (file.role === 'viewer')
-            throw new StudioError(
-              'Droits insuffisants : ce fichier est en lecture seule pour votre compte Figma.',
-              403,
-            );
-          if (!file.pages.some((p) => p.id === target.pageId))
-            throw new StudioError(
-              'Page introuvable dans ce fichier Figma.',
-              404,
-            );
-          const live = figma.liveStatus;
-          const open = live.file;
-          if (
-            live.connected &&
-            open &&
-            (open.key ? open.key !== target.fileKey : open.name !== file.name)
-          )
-            throw new StudioError(
-              `Fichier non ouvert dans Figma : ouvrez « ${file.name} » dans Figma Desktop, puis relancez le plugin.`,
-              409,
-            );
-          let result: unknown;
-          try {
-            // Les tokens écrits sont ceux du disque au moment de l'envoi.
-            result = await figma.command(
-              'export',
-              {
-                ...b,
-                pageId: target.pageId,
-                tokens: store.snapshot().tokens,
-                nodes: await figma.mapping(target.fileKey),
-              },
-              120_000,
-            );
-          } catch (e) {
-            if (
-              /lecture seule|read.?only|permission/i.test((e as Error).message)
-            )
-              throw new StudioError(
-                'Droits insuffisants : Figma refuse l’écriture dans ce fichier.',
-                403,
-              );
-            throw e;
-          }
-          const summary = exportSummarySchema.parse(result);
-          await figma.saveMapping(target.fileKey, summary.nodes);
-          return send(200, {
-            ...summary,
-            link: `https://www.figma.com/design/${target.fileKey}/?node-id=${encodeURIComponent(summary.pageId.replace(':', '-'))}`,
-          });
-        }
-        if (url.pathname === '/api/figma/pair-reset') {
-          await figma.resetPairing();
-          return send(200, { pairCode: figma.pairCode });
         }
         if (url.pathname === '/api/proposals') {
           const b = proposeSchema.parse(body);

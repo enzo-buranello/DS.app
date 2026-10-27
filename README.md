@@ -152,7 +152,7 @@ Inspirez-vous des deux skills fournis, sans copier vos identifiants ou vos conve
 | Import/export JSON local                                            | **TESTED**, API + navigateur                                                                       |
 | Chat Codex, JSON proposé avant acceptation                          | **TESTED**, CLI 0.164.0, compte enseignant disponible pendant la qualification ; quota non garanti |
 | Claude Code / Gemini dans l’application                             | **NOT IMPLEMENTED**, adaptateurs indisponibles et contrat documenté                                |
-| Export Figma (OAuth + plugin local)                                 | **TESTED** avec un faux Figma et un plugin simulé ; **non vérifié** avec un vrai compte Figma      |
+| Figma                                                               | **NOT IMPLEMENTED**, intégration en cours de reconstruction (pont local)                           |
 | Skills et harness personnalisable                                   | **IMPLEMENTED**, structure et liens vérifiés ; pas une validation des choix d’un étudiant          |
 | Qualification automatisée Windows / macOS                           | **TESTED en CI** pour API, navigateur et contrôleur ; **PARTIAL** pour Finder/WSH natifs           |
 | Application desktop installable                                     | **NOT IMPLEMENTED**, application web locale uniquement                                             |
@@ -177,10 +177,7 @@ Détails et limites : [SECURITY](docs/SECURITY.md), [AGENTS](docs/AGENT_ADAPTERS
 
 ### Figma
 
-Facultatif. Le bouton **↗ Exporter** écrit le Design system ou l’aperçu dans un fichier
-Figma : connexion OAuth (votre app Figma, clés dans `.env`), choix fichier › page, puis
-écriture native par le plugin local « DS-Studio Bridge ». Mise en place et limites :
-[docs/FIGMA.md](docs/FIGMA.md).
+Intégration en cours de reconstruction : pont local entre l’app et Figma Desktop.
 
 ## Vérifier et développer
 

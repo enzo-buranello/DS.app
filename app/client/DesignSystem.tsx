@@ -21,17 +21,6 @@ export function DSProvider({
     </div>
   );
 }
-// Marqueurs lus par l'export Figma : composant (ou set) et variante au format Figma.
-export const dsMark = (component: string, variant?: string, key?: string) => ({
-  'data-ds-component': component,
-  ...(variant ? { 'data-ds-variant': variant } : {}),
-  ...(key ? { 'data-ds-key': key } : {}),
-});
-const variantLabel = {
-  primary: 'Principal',
-  secondary: 'Secondaire',
-  danger: 'Danger',
-} as const;
 export function Button({
   variant = 'primary',
   children,
@@ -48,10 +37,6 @@ export function Button({
       className={`ds-button ${variant}`}
       disabled={disabled}
       onClick={onClick}
-      {...dsMark(
-        'Button',
-        `Variante=${variantLabel[variant]}, État=${disabled ? 'Désactivé' : 'Défaut'}`,
-      )}
     >
       {children}
     </button>
@@ -60,7 +45,7 @@ export function Button({
 export function BookingCard() {
   const [booked, setBooked] = useState(false);
   return (
-    <article className="ds-card" {...dsMark('BookingCard')}>
+    <article className="ds-card">
       <div className="card-kicker">ATELIER · 45 MIN</div>
       <h3>Faire moins, mais mieux.</h3>
       <p>Un atelier pour imaginer des services plus attentifs au quotidien.</p>
@@ -81,7 +66,6 @@ export function ExampleForm() {
   const [sent, setSent] = useState(false);
   return (
     <form
-      {...dsMark('Form')}
       className="ds-form"
       onSubmit={(e) => {
         e.preventDefault();
@@ -121,11 +105,7 @@ export function ExampleForm() {
 export function Navigation() {
   const [tab, setTab] = useState('Découvrir');
   return (
-    <nav
-      aria-label="Navigation du scénario"
-      className="ds-nav"
-      {...dsMark('Navigation')}
-    >
+    <nav aria-label="Navigation du scénario" className="ds-nav">
       {['Découvrir', 'Favoris', 'Profil'].map((t) => (
         <button
           key={t}
@@ -176,19 +156,7 @@ export function VectorView({ vector }: { vector: Vector }) {
 // Composant créé à la main : le style vient du modèle, les tokens restent des var().
 export function ComponentView({ component }: { component: DSComponent }) {
   return (
-    <div
-      className="ds-custom"
-      style={componentCss(component) as CSSProperties}
-      {...dsMark(
-        component.set?.name ?? component.name,
-        component.set
-          ? Object.entries(component.set.properties)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(', ') || component.name
-          : undefined,
-        `custom:${component.id}`,
-      )}
-    >
+    <div className="ds-custom" style={componentCss(component) as CSSProperties}>
       {component.vector && <VectorView vector={component.vector} />}
       {component.icon && <span aria-hidden="true">{component.icon}</span>}
       <span>{component.label}</span>

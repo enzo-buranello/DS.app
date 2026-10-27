@@ -255,87 +255,12 @@ small,
 .import-preview .control-row {
   grid-column: 1 / -1;
 }
-.export-anchor {
-  position: relative;
-}
 .export-button {
   font-size: 12px;
   padding: 5px 10px;
   display: inline-flex;
   gap: 6px;
   align-items: center;
-}
-.export-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 6;
-  width: 280px;
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  background: white;
-  border: 1px solid #e0e4ec;
-  border-radius: 12px;
-  box-shadow: 0 10px 30px #1b2e4a24;
-}
-.button-link {
-  display: inline-flex;
-  justify-content: center;
-  padding: 8px 12px;
-  border-radius: 7px;
-  background: #294882;
-  color: white;
-  font-weight: 600;
-  text-decoration: none;
-}
-.button-link:focus-visible {
-  outline: 3px solid #496bca;
-  outline-offset: 3px;
-}
-.export-account {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.export-account button {
-  font-size: 11px;
-  padding: 4px 8px;
-}
-.export-file {
-  display: flex;
-  gap: 6px;
-  align-items: end;
-}
-.export-file .field {
-  flex: 1;
-  min-width: 0;
-}
-.export-file button {
-  min-height: 39px;
-  font-size: 12px;
-}
-.export-menu {
-  width: 320px;
-}
-.export-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.export-choices button {
-  font-size: 12px;
-}
-.export-problem {
-  margin: 0;
-  font-size: 12px;
-  color: #704a13;
-}
-.notice a {
-  color: inherit;
-  font-weight: 650;
 }
 .preview-tools-toggle {
   font-size: 12px;
@@ -1101,21 +1026,6 @@ del {
   font-size: 11px;
   margin: 0;
 }
-.export-sheet {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 24px;
-  padding: 24px;
-}
-.export-item {
-  max-width: 100%;
-}
-.export-item > .ds-card,
-.export-item > .ds-form,
-.export-item > .ds-nav {
-  width: 432px;
-}
 .preview-body {
   background: white;
 }
@@ -1188,13 +1098,4 @@ del {
   display: grid;
   gap: 12px;
   margin-bottom: 10px;
-}
-.pair-code {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #eef1f6;
-  user-select: all;
-  word-break: break-all;
 }

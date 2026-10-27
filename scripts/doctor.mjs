@@ -23,7 +23,7 @@ console.log(
   `Codex: ${result.status === 0 ? result.stdout.trim() : 'absent (facultatif)'}`,
 );
 console.log(
-  'Figma: facultatif (bouton Exporter, voir docs/FIGMA.md). Aucun fichier d’authentification consulté.',
+  'Figma: non connecté (facultatif). Aucun fichier d’authentification consulté.',
 );
 console.log(
   `Données locales: ${process.env.DS_STUDIO_DATA_DIR ? 'dossier configuré' : '.ds-studio/ (ignoré par Git)'}`,
