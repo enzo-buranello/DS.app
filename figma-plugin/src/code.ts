@@ -65,7 +65,8 @@ function details(node: any) {
 }
 async function nodeById(id: string) {
   const node = await figma.getNodeByIdAsync(id);
-  if (!node) throw new Error('Nœud introuvable : ' + id + '.');
+  // Figma renvoie encore un nœud supprimé (removed = true) : traité comme absent.
+  if (!node || node.removed) throw new Error('Nœud introuvable : ' + id + '.');
   return node;
 }
 // Toutes les polices du texte doivent être chargées avant de le modifier.

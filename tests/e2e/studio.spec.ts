@@ -1153,6 +1153,8 @@ test('exporter vers Figma : pont absent, page cible, progression, DS puis aperç
   );
   expect(JSON.stringify(card.root)).toContain('"instanceOf":"button/primary"');
   const styles = ds1.textStyles.map((t: { name: string }) => t.name);
+  // Tailles arrondies : pas de « 19.200001 » qui changerait l'id d'un export à l'autre.
+  for (const name of styles) expect(name).not.toMatch(/\.\d{3,}/);
   expect(styles).toEqual(
     expect.arrayContaining([expect.stringMatching(/^DS-Studio\/Corps/)]),
   );

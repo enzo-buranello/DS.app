@@ -5759,7 +5759,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	}
 	async function nodeById(id) {
 		const node = await figma.getNodeByIdAsync(id);
-		if (!node) throw new Error("Nœud introuvable : " + id + ".");
+		if (!node || node.removed) throw new Error("Nœud introuvable : " + id + ".");
 		return node;
 	}
 	async function loadFonts(text) {

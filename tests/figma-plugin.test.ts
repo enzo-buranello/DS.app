@@ -37,7 +37,9 @@ function mockFigma() {
       },
       remove() {
         n.parent?.children.splice(n.parent.children.indexOf(n), 1);
-        delete nodes[n.id];
+        // Comme Figma : le nœud reste accessible par son id, marqué supprimé.
+        n.parent = null;
+        n.removed = true;
       },
       ...props,
     };
@@ -142,6 +144,20 @@ test('plugin : créer une frame, modifier un texte (polices chargées), supprime
     false,
   );
   assert.match((await send('delete_node', { id: '0:1' })).error, /refusée/);
+  // Nœud supprimé encore renvoyé par Figma : introuvable.
+  const ghost = await send('create_frame', {
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+    name: 'g',
+    color: '#000000',
+  });
+  await send('delete_node', { id: ghost.result.id });
+  assert.match(
+    (await send('get_node', { id: ghost.result.id })).error,
+    /Nœud introuvable/,
+  );
 });
 
 test('manifest : réseau limité à ws://localhost:3055', async () => {

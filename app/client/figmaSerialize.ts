@@ -69,6 +69,9 @@ function parseColor(css: string): { hex: string; opacity: number } | null {
       .toUpperCase();
   return { hex, opacity: Math.round(alpha * 100) / 100 };
 }
+// Mesures arrondies : 19.200001 et 19.2 doivent donner le même style de texte
+// d'un export à l'autre (sinon un nouveau style est créé à chaque fois).
+const round = (v: number) => Math.round(v * 100) / 100;
 const isFlex = (cs: CSSStyleDeclaration) =>
   cs.display === 'flex' || cs.display === 'inline-flex';
 const isAutoLayout = (cs: CSSStyleDeclaration) =>
@@ -141,15 +144,17 @@ export class Serializer {
     characters: string,
   ): NonNullable<SceneNode['text']> {
     const cs = getComputedStyle(el);
-    const fontSize = parseFloat(cs.fontSize) || 16;
+    const fontSize = round(parseFloat(cs.fontSize) || 16);
     const fontWeight = parseInt(cs.fontWeight, 10) || 400;
     const fontFamily = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
     const lineHeight =
       cs.lineHeight === 'normal'
         ? Math.round(fontSize * 1.2)
-        : parseFloat(cs.lineHeight);
+        : round(parseFloat(cs.lineHeight));
     const letterSpacing =
-      cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing) || 0;
+      cs.letterSpacing === 'normal'
+        ? 0
+        : round(parseFloat(cs.letterSpacing) || 0);
     const fontSizeVariable = this.dim(fontSize, ['font.body', 'font.heading']);
     return {
       characters,
