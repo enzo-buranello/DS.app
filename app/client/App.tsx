@@ -507,7 +507,7 @@ export default function App() {
               onClick={() => setPreviewToolsOpen(!previewToolsOpen)}
             >
               Réglages d’aperçu
-              <span aria-hidden="true">{previewToolsOpen ? ' ▴' : ' ▾'}</span>
+              <span aria-hidden="true">{previewToolsOpen ? ' ‹' : ' ›'}</span>
             </button>
           )}
           {view === 'preview' && (
@@ -525,92 +525,96 @@ export default function App() {
             />
           )}
         </div>
-        {view === 'preview' && (
-          <div
-            className="preview-tools"
-            id="preview-tools"
-            role="group"
-            aria-label="Réglages d’aperçu"
-            hidden={!previewToolsOpen}
-          >
-            <label className="field">
-              Largeur d’écran
-              <select
-                value={device}
-                onChange={(e) => setDevice(Number(e.target.value))}
-              >
-                {devices.map((d, i) => (
-                  <option key={d.width} value={i}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              Scénario
-              <select
-                value={scenario}
-                onChange={(e) => setScenario(e.target.value)}
-              >
-                <option value="cards">Découvrir</option>
-                <option value="form">Inscription</option>
-              </select>
-            </label>
-          </div>
-        )}
-        <div className="stage-frame" ref={stageFrame}>
-          {view === 'ds' ? (
+        <div className="stage-body">
+          {view === 'preview' && (
+            // Panneau latéral glissant : replié, il libère la place et sort du parcours clavier.
             <div
-              className="stage-content stage-catalogue"
-              ref={catalogueBox}
-              style={{
-                width: CATALOGUE_WIDTH,
-                transform: `translate(${catalogueFit.x}px, ${catalogueFit.y}px) scale(${catalogueFit.scale})`,
-              }}
+              className="preview-tools"
+              id="preview-tools"
+              role="group"
+              aria-label="Réglages d’aperçu"
+              data-open={previewToolsOpen}
+              inert={!previewToolsOpen}
             >
-              <Catalogue
-                tokens={state.tokens}
-                extra={
-                  custom.components.length > 0 && (
-                    <div className="custom-grid">
-                      {custom.components.map((c) => (
-                        <button
-                          type="button"
-                          key={c.id}
-                          className={`custom-slot${c.layout.sizingX === 'fill' ? ' fill-x' : ''}`}
-                          aria-pressed={c.id === custom.selected?.id}
-                          aria-label={`Sélectionner ${c.name || 'Sans nom'}`}
-                          onClick={() => {
-                            custom.select(c.id);
-                            setPanelOpen(true);
-                            setSection('create', true);
-                          }}
-                        >
-                          <ComponentView component={c} />
-                        </button>
-                      ))}
-                    </div>
-                  )
-                }
-              />
-            </div>
-          ) : (
-            <div
-              className="stage-content stage-device"
-              ref={deviceBox}
-              style={{
-                transform: `translate(${previewFit.x}px, ${previewFit.y}px) scale(${previewFit.scale})`,
-              }}
-            >
-              <iframe
-                title="Aperçu responsive"
-                src={`/?preview=1&scenario=${scenario}`}
-                width={devices[device].width}
-                height={frameHeight}
-                onLoad={(e) => watchFrame(e.currentTarget)}
-              />
+              <label className="field">
+                Largeur d’écran
+                <select
+                  value={device}
+                  onChange={(e) => setDevice(Number(e.target.value))}
+                >
+                  {devices.map((d, i) => (
+                    <option key={d.width} value={i}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Scénario
+                <select
+                  value={scenario}
+                  onChange={(e) => setScenario(e.target.value)}
+                >
+                  <option value="cards">Découvrir</option>
+                  <option value="form">Inscription</option>
+                </select>
+              </label>
             </div>
           )}
+          <div className="stage-frame" ref={stageFrame}>
+            {view === 'ds' ? (
+              <div
+                className="stage-content stage-catalogue"
+                ref={catalogueBox}
+                style={{
+                  width: CATALOGUE_WIDTH,
+                  transform: `translate(${catalogueFit.x}px, ${catalogueFit.y}px) scale(${catalogueFit.scale})`,
+                }}
+              >
+                <Catalogue
+                  tokens={state.tokens}
+                  extra={
+                    custom.components.length > 0 && (
+                      <div className="custom-grid">
+                        {custom.components.map((c) => (
+                          <button
+                            type="button"
+                            key={c.id}
+                            className={`custom-slot${c.layout.sizingX === 'fill' ? ' fill-x' : ''}`}
+                            aria-pressed={c.id === custom.selected?.id}
+                            aria-label={`Sélectionner ${c.name || 'Sans nom'}`}
+                            onClick={() => {
+                              custom.select(c.id);
+                              setPanelOpen(true);
+                              setSection('create', true);
+                            }}
+                          >
+                            <ComponentView component={c} />
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  }
+                />
+              </div>
+            ) : (
+              <div
+                className="stage-content stage-device"
+                ref={deviceBox}
+                style={{
+                  transform: `translate(${previewFit.x}px, ${previewFit.y}px) scale(${previewFit.scale})`,
+                }}
+              >
+                <iframe
+                  title="Aperçu responsive"
+                  src={`/?preview=1&scenario=${scenario}`}
+                  width={devices[device].width}
+                  height={frameHeight}
+                  onLoad={(e) => watchFrame(e.currentTarget)}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </main>
 

@@ -812,9 +812,20 @@ test('réglages d’aperçu : dans la fenêtre d’aperçu seulement, repliables
   await expect(page.locator('iframe')).toHaveAttribute('src', /scenario=form/);
   const toggle = page.getByRole('button', { name: /Réglages d’aperçu/ });
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  // Panneau latéral, à gauche de l'écran d'aperçu ; replié, il rend la place à la scène.
+  const frameWidth = () =>
+    page.locator('.stage-frame').evaluate((el) => el.clientWidth);
+  const [toolsBox, frameBox] = await Promise.all([
+    tools.boundingBox(),
+    page.locator('.stage-frame').boundingBox(),
+  ]);
+  expect(toolsBox!.x + toolsBox!.width).toBeLessThanOrEqual(frameBox!.x);
+  expect(toolsBox!.height).toBeGreaterThan(frameBox!.height * 0.9);
+  const opened = await frameWidth();
   await toggle.click();
   await expect(tools).toBeHidden();
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(frameWidth).toBeGreaterThan(opened + 150);
   await expectFits(page);
   await toggle.click();
   await expect(tools).toBeVisible();

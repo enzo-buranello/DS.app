@@ -300,27 +300,48 @@ small,
   font-size: 12px;
   padding: 5px 10px;
 }
-.preview-tools {
+.stage-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 12px;
-  align-items: end;
-  padding: 10px 12px;
+}
+.stage-body > .stage-frame {
+  flex: 1;
+  min-width: 0;
+}
+.preview-tools {
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
   background: white;
   border: 1px solid #e0e4ec;
-  border-radius: 10px;
-  animation: tools-in 0.16s ease-out;
+  border-radius: 12px;
+  overflow: hidden;
+  transition:
+    width 0.2s ease,
+    padding 0.2s ease,
+    opacity 0.2s ease,
+    visibility 0s linear 0s;
 }
-.preview-tools[hidden] {
-  display: none;
+.preview-tools[data-open='false'] {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    width 0.2s ease,
+    padding 0.2s ease,
+    opacity 0.2s ease,
+    visibility 0s linear 0.2s;
 }
 .preview-tools .field {
-  flex: 0 1 220px;
-}
-@keyframes tools-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
+  min-width: 196px;
 }
 .stage-meta {
   font-size: 11px;
