@@ -547,3 +547,160 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et m
     state.revision,
   );
 });
+
+test('créer un composant : chaque réglage en direct, lien aux tokens, persistance', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Nouveau composant' }).click();
+  const slot = page.getByRole('button', { name: /^Sélectionner Bouton/ });
+  await expect(slot).toHaveAttribute('aria-pressed', 'true');
+  const comp = page.locator('.ds-custom').first();
+  const css = (prop: string) =>
+    comp.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+  const combo = (name: string) =>
+    page.getByRole('combobox', { name, exact: true });
+  const num = (name: string) =>
+    page.getByRole('spinbutton', { name, exact: true });
+
+  await page.getByLabel('Nom', { exact: true }).fill('Bouton test');
+  await page.getByLabel('Texte', { exact: true }).fill('Valider');
+  await expect(comp).toContainText('Valider');
+
+  // Couleurs : token, valeur libre + opacité, stroke.
+  const brand: string = (await (await page.request.get('/api/state')).json())
+    .tokens['color.brand'].$value;
+  const rgb = (hex: string) =>
+    `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+  await expect(comp).toHaveCSS('background-color', rgb(brand));
+  await combo('Fill').selectOption('hex');
+  await page.getByLabel('Fill : hex').fill('#112233');
+  await num('Fill : opacité (%)').fill('50');
+  await expect(comp).toHaveCSS(
+    'background-color',
+    /rgba?\(17, 34, 51, 0\.5\)|color\(srgb/,
+  );
+  await combo('Fill').selectOption('color.brand');
+  await num('Fill : opacité (%)').fill('100');
+  await combo('Stroke').selectOption('color.danger');
+  await combo('Texte (couleur)').selectOption('color.surface');
+  await expect(comp).toHaveCSS('color', 'rgb(255, 255, 255)');
+
+  // Bordure.
+  await num('Épaisseur (px)').fill('3');
+  await combo('Style').selectOption('dashed');
+  await expect(comp).toHaveCSS('border-top-width', '3px');
+  await expect(comp).toHaveCSS('border-top-style', 'dashed');
+  await expect(comp).toHaveCSS('border-top-color', 'rgb(180, 35, 62)');
+
+  // Radius global puis par coin.
+  await combo('Rayon global').selectOption('px');
+  await num('Rayon global : valeur (px)').fill('12');
+  await expect(comp).toHaveCSS('border-top-left-radius', '12px');
+  await page.getByText('Rayon par coin').click();
+  await combo('Rayon bas droit').selectOption('px');
+  await num('Rayon bas droit : valeur (px)').fill('0');
+  await expect(comp).toHaveCSS('border-bottom-right-radius', '0px');
+  await expect(comp).toHaveCSS('border-top-left-radius', '12px');
+
+  // Auto layout.
+  await combo('Direction').selectOption('vertical');
+  await expect(comp).toHaveCSS('flex-direction', 'column');
+  await combo('Gap').selectOption('space.lg');
+  await expect(comp).toHaveCSS('row-gap', '24px');
+  await combo('Padding global').selectOption('space.lg');
+  await page.getByText('Padding par côté').click();
+  await combo('Padding gauche').selectOption('px');
+  await num('Padding gauche : valeur (px)').fill('40');
+  await expect(comp).toHaveCSS('padding-top', '24px');
+  await expect(comp).toHaveCSS('padding-left', '40px');
+  await combo('Alignement').selectOption('end');
+  await combo('Distribution').selectOption('space-between');
+  await expect(comp).toHaveCSS('align-items', 'flex-end');
+  await expect(comp).toHaveCSS('justify-content', 'space-between');
+  await combo('Largeur').selectOption('fill');
+  // Fill : le composant occupe toute la largeur intérieure de son emplacement.
+  await expect
+    .poll(() =>
+      comp.evaluate((el) => {
+        const slot = el.parentElement!;
+        const pad =
+          parseFloat(getComputedStyle(slot).paddingLeft) +
+          parseFloat(getComputedStyle(slot).paddingRight);
+        return Math.round(
+          (el as HTMLElement).offsetWidth - (slot.clientWidth - pad),
+        );
+      }),
+    )
+    .toBe(0);
+  await combo('Hauteur').selectOption('fixed');
+  await num('Hauteur fixe (px)').fill('140');
+  await expect(comp).toHaveCSS('height', '140px');
+
+  // Typographie.
+  await combo('Famille').selectOption('Georgia');
+  await combo('Taille').selectOption('font.heading');
+  await combo('Graisse').selectOption('800');
+  await num('Interligne').fill('1.2');
+  await expect(comp).toHaveCSS('font-family', 'Georgia');
+  await expect(comp).toHaveCSS('font-size', '28px');
+  await expect(comp).toHaveCSS('font-weight', '800');
+  await expect(comp).toHaveCSS('line-height', /33\.6px/);
+
+  // Effets.
+  await page.getByLabel('Ombre portée').check();
+  await num('Ombre y').fill('6');
+  await expect(comp).toHaveCSS('box-shadow', /6px 12px 0px/);
+  await num('Flou du calque (px)').fill('1');
+  await expect(comp).toHaveCSS('filter', 'blur(1px)');
+  await num('Flou du calque (px)').fill('0');
+
+  // Dimensions.
+  await num('Largeur min (px)').fill('200');
+  await num('Largeur max (px)').fill('320');
+  await num('Hauteur min (px)').fill('60');
+  await num('Hauteur max (px)').fill('400');
+  await expect(comp).toHaveCSS('min-width', '200px');
+  await expect(comp).toHaveCSS('max-width', '320px');
+  await expect(comp).toHaveCSS('min-height', '60px');
+  await expect(comp).toHaveCSS('max-height', '400px');
+
+  // Le fill reste lié au token : une validation de color.brand le met à jour.
+  await page
+    .getByRole('combobox', { name: 'Token', exact: true })
+    .selectOption('color.brand');
+  await page.getByLabel('Valeur du token').fill('#8A3B20');
+  await page.getByRole('button', { name: 'Proposer', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Valider et enregistrer' })
+    .click();
+  await expect(comp).toHaveCSS('background-color', 'rgb(138, 59, 32)');
+
+  // Sauvegarde sur disque, puis repli de section mémorisé après rechargement.
+  await expect
+    .poll(async () => {
+      const { components } = await (
+        await page.request.get('/api/components')
+      ).json();
+      return components[0]?.size.maxHeight;
+    })
+    .toBe(400);
+  const { components } = await (
+    await page.request.get('/api/components')
+  ).json();
+  expect(components[0]).toMatchObject({
+    name: 'Bouton test',
+    fill: { token: 'color.brand' },
+    layout: { gap: { token: 'space.lg' }, padding: { left: { px: 40 } } },
+  });
+  await page.getByText('Import Figma', { exact: true }).click();
+  await page.reload();
+  await expect(page.locator('#figma-import')).toBeHidden();
+  await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
+    'Bouton test',
+  );
+  await expect(page.locator('.ds-custom').first()).toHaveCSS('height', '140px');
+  await page.screenshot({ path: 'test-results/composant-manuel.png' });
+});

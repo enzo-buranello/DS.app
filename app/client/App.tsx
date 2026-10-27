@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Catalogue, Scenario } from './DesignSystem.js';
+import { Catalogue, ComponentView, Scenario } from './DesignSystem.js';
+import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
 import FigmaPanel from './FigmaPanel.js';
 import { useTokenDraft } from './useTokenDraft.js';
@@ -21,6 +22,32 @@ const devices = [
 // Largeur de rendu du catalogue avant mise à l'échelle dans la scène.
 const CATALOGUE_WIDTH = 960;
 const PROMPT_MAX_LINES = 4;
+// Préférence d'affichage seulement : perdue sans conséquence si le stockage est refusé.
+const SECTIONS_KEY = 'ds-studio-settings-sections-v1';
+type SectionId = 'create' | 'figma' | 'other';
+function useSections() {
+  const [open, setOpen] = useState<Record<SectionId, boolean>>(() => {
+    const fallback = { create: true, figma: true, other: true };
+    try {
+      return {
+        ...fallback,
+        ...JSON.parse(localStorage.getItem(SECTIONS_KEY) || '{}'),
+      };
+    } catch {
+      return fallback;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SECTIONS_KEY, JSON.stringify(open));
+    } catch {
+      /* Facultatif. */
+    }
+  }, [open]);
+  const set = (id: SectionId, value: boolean) =>
+    setOpen((o) => (o[id] === value ? o : { ...o, [id]: value }));
+  return [open, set] as const;
+}
 
 function useDesignState() {
   const [state, setState] = useState<State>();
@@ -131,6 +158,8 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [view, setView] = useState<'ds' | 'preview'>('ds');
   const [panelOpen, setPanelOpen] = useState(true);
+  const [sections, setSection] = useSections();
+  const custom = useComponents(setError);
   const [device, setDevice] = useState(1);
   const [scenario, setScenario] = useState('cards');
   const [frameHeight, setFrameHeight] = useState(devices[1].height);
@@ -235,6 +264,7 @@ export default function App() {
   }
   function focusTokens() {
     setPanelOpen(true);
+    setSection('other', true);
     requestAnimationFrame(() => tokensTitle.current?.focus());
   }
   // L'iframe prend la hauteur de son contenu : c'est la scène qui réduit, pas l'iframe qui défile.
@@ -410,7 +440,31 @@ export default function App() {
                 transform: `translate(${catalogueFit.x}px, ${catalogueFit.y}px) scale(${catalogueFit.scale})`,
               }}
             >
-              <Catalogue tokens={state.tokens} />
+              <Catalogue
+                tokens={state.tokens}
+                extra={
+                  custom.components.length > 0 && (
+                    <div className="custom-grid">
+                      {custom.components.map((c) => (
+                        <button
+                          type="button"
+                          key={c.id}
+                          className={`custom-slot${c.layout.sizingX === 'fill' ? ' fill-x' : ''}`}
+                          aria-pressed={c.id === custom.selected?.id}
+                          aria-label={`Sélectionner ${c.name || 'Sans nom'}`}
+                          onClick={() => {
+                            custom.select(c.id);
+                            setPanelOpen(true);
+                            setSection('create', true);
+                          }}
+                        >
+                          <ComponentView component={c} />
+                        </button>
+                      ))}
+                    </div>
+                  )
+                }
+              />
             </div>
           ) : (
             <div
@@ -450,205 +504,259 @@ export default function App() {
           </span>
         </button>
         <div className="settings-body" id="settings-body" hidden={!panelOpen}>
-          <section aria-labelledby="tokens-title" className="settings-section">
-            <div className="section-head">
-              <h2 id="tokens-title" ref={tokensTitle} tabIndex={-1}>
-                Tokens
-              </h2>
-              <span className="muted">r{state.revision}</span>
-            </div>
-            <label className="field">
-              Rechercher un token
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="color, space, font…"
+          <details
+            className="settings-group"
+            open={sections.create}
+            onToggle={(e) => setSection('create', e.currentTarget.open)}
+          >
+            <summary>
+              <h2>Créer un composant</h2>
+            </summary>
+            <section className="settings-section">
+              <ComponentEditor
+                tokens={state.tokens}
+                components={custom.components}
+                selected={custom.selected}
+                onSelect={custom.select}
+                onChange={custom.update}
+                onCreate={() => {
+                  custom.create();
+                  setView('ds');
+                }}
+                onDelete={custom.remove}
               />
-            </label>
-            <p className="token-hint" role="status">
-              {matchingKeys.length} résultat(s).
-            </p>
-            <div className="swatches">
-              {matchingKeys
-                .filter((k) => k.startsWith('color.'))
-                .map((k) => (
-                  <button
-                    title={k}
-                    aria-label={`Sélectionner ${k}`}
-                    aria-pressed={key === k}
-                    key={k}
-                    style={{ background: String(state.tokens[k].$value) }}
-                    onClick={() => setKey(k)}
-                  >
-                    <span className="sr-only">{k}</span>
-                  </button>
-                ))}
-            </div>
-            <form
-              className="token-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void proposeToken();
-              }}
+            </section>
+          </details>
+          <details
+            className="settings-group"
+            open={sections.figma}
+            onToggle={(e) => setSection('figma', e.currentTarget.open)}
+          >
+            <summary>
+              <h2>Import Figma</h2>
+            </summary>
+            <section className="settings-section" id="figma-import" />
+          </details>
+          <details
+            className="settings-group"
+            open={sections.other}
+            onToggle={(e) => setSection('other', e.currentTarget.open)}
+          >
+            <summary>
+              <h2>Autres réglages</h2>
+            </summary>
+            <section
+              aria-labelledby="tokens-title"
+              className="settings-section"
             >
+              <div className="section-head">
+                <h3 id="tokens-title" ref={tokensTitle} tabIndex={-1}>
+                  Tokens
+                </h3>
+                <span className="muted">r{state.revision}</span>
+              </div>
               <label className="field">
-                Token
-                <select
-                  value={key}
-                  onChange={(e) => setKey(e.target.value as TokenKey)}
-                >
-                  {[...new Set([key, ...matchingKeys])].map((k) => (
-                    <option key={k}>{k}</option>
-                  ))}
-                </select>
+                Rechercher un token
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="color, space, font…"
+                />
               </label>
-              <div className="token-value">
-                <label className="field">
-                  Valeur
-                  {state.tokens[key].$type === 'fontFamily' ? (
-                    <select
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
+              <p className="token-hint" role="status">
+                {matchingKeys.length} résultat(s).
+              </p>
+              <div className="swatches">
+                {matchingKeys
+                  .filter((k) => k.startsWith('color.'))
+                  .map((k) => (
+                    <button
+                      title={k}
+                      aria-label={`Sélectionner ${k}`}
+                      aria-pressed={key === k}
+                      key={k}
+                      style={{ background: String(state.tokens[k].$value) }}
+                      onClick={() => setKey(k)}
                     >
-                      {['system-ui', 'Arial', 'Georgia', 'Verdana'].map((f) => (
-                        <option key={f}>{f}</option>
-                      ))}
-                    </select>
-                  ) : (
+                      <span className="sr-only">{k}</span>
+                    </button>
+                  ))}
+              </div>
+              <form
+                className="token-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void proposeToken();
+                }}
+              >
+                <label className="field">
+                  Token
+                  <select
+                    value={key}
+                    onChange={(e) => setKey(e.target.value as TokenKey)}
+                  >
+                    {[...new Set([key, ...matchingKeys])].map((k) => (
+                      <option key={k}>{k}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="token-value">
+                  <label className="field">
+                    Valeur
+                    {state.tokens[key].$type === 'fontFamily' ? (
+                      <select
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                      >
+                        {['system-ui', 'Arial', 'Georgia', 'Verdana'].map(
+                          (f) => (
+                            <option key={f}>{f}</option>
+                          ),
+                        )}
+                      </select>
+                    ) : (
+                      <input
+                        aria-label="Valeur du token"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        required
+                        type={
+                          state.tokens[key].$type === 'dimension'
+                            ? 'number'
+                            : 'text'
+                        }
+                        min={
+                          state.tokens[key].$type === 'dimension'
+                            ? 0
+                            : undefined
+                        }
+                        max={
+                          state.tokens[key].$type === 'dimension'
+                            ? 128
+                            : undefined
+                        }
+                        step={
+                          state.tokens[key].$type === 'dimension'
+                            ? 'any'
+                            : undefined
+                        }
+                        maxLength={20}
+                      />
+                    )}
+                  </label>
+                  {state.tokens[key].$type === 'color' && (
                     <input
-                      aria-label="Valeur du token"
-                      value={draft}
+                      className="color-picker"
+                      aria-label="Sélecteur de couleur"
+                      type="color"
+                      value={
+                        /^#[0-9a-fA-F]{6}$/.test(draft)
+                          ? draft
+                          : String(current)
+                      }
                       onChange={(e) => setDraft(e.target.value)}
-                      required
-                      type={
-                        state.tokens[key].$type === 'dimension'
-                          ? 'number'
-                          : 'text'
-                      }
-                      min={
-                        state.tokens[key].$type === 'dimension' ? 0 : undefined
-                      }
-                      max={
-                        state.tokens[key].$type === 'dimension'
-                          ? 128
-                          : undefined
-                      }
-                      step={
-                        state.tokens[key].$type === 'dimension'
-                          ? 'any'
-                          : undefined
-                      }
-                      maxLength={20}
                     />
                   )}
-                </label>
-                {state.tokens[key].$type === 'color' && (
-                  <input
-                    className="color-picker"
-                    aria-label="Sélecteur de couleur"
-                    type="color"
-                    value={
-                      /^#[0-9a-fA-F]{6}$/.test(draft) ? draft : String(current)
-                    }
-                    onChange={(e) => setDraft(e.target.value)}
-                  />
-                )}
-                <button
-                  className="studio-primary"
-                  disabled={!boot || draft === String(current)}
-                >
-                  Proposer
-                </button>
-              </div>
-            </form>
-            {state.tokens[key].$type !== 'fontFamily' && (
-              <p className="token-hint">
-                {state.tokens[key].$type === 'color'
-                  ? 'Format #RRGGBB'
-                  : 'Pixels, de 0 à 128'}
-              </p>
-            )}
-            {draft !== String(current) && (
-              <p className="draft-status" role="status">
-                {recovered
-                  ? 'Brouillon récupéré.'
-                  : 'Brouillon non enregistré.'}
-                <button type="button" onClick={discard}>
-                  Abandonner le brouillon
-                </button>
-              </p>
-            )}
-            <p className="contrast" aria-live="polite">
-              Contraste marque / texte :{' '}
-              <strong>{savedContrast.toFixed(2)}:1</strong> ·{' '}
-              {savedContrast >= 4.5
-                ? 'AA texte courant'
-                : 'Contraste à améliorer'}
-            </p>
-            {draftContrast !== undefined && draft !== String(current) && (
-              <p className="contrast" role="status">
-                Contraste proposé :{' '}
-                <strong>{draftContrast.toFixed(2)}:1</strong> ·{' '}
-                {draftContrast >= 4.5
+                  <button
+                    className="studio-primary"
+                    disabled={!boot || draft === String(current)}
+                  >
+                    Proposer
+                  </button>
+                </div>
+              </form>
+              {state.tokens[key].$type !== 'fontFamily' && (
+                <p className="token-hint">
+                  {state.tokens[key].$type === 'color'
+                    ? 'Format #RRGGBB'
+                    : 'Pixels, de 0 à 128'}
+                </p>
+              )}
+              {draft !== String(current) && (
+                <p className="draft-status" role="status">
+                  {recovered
+                    ? 'Brouillon récupéré.'
+                    : 'Brouillon non enregistré.'}
+                  <button type="button" onClick={discard}>
+                    Abandonner le brouillon
+                  </button>
+                </p>
+              )}
+              <p className="contrast" aria-live="polite">
+                Contraste marque / texte :{' '}
+                <strong>{savedContrast.toFixed(2)}:1</strong> ·{' '}
+                {savedContrast >= 4.5
                   ? 'AA texte courant'
                   : 'Contraste à améliorer'}
               </p>
-            )}
-          </section>
+              {draftContrast !== undefined && draft !== String(current) && (
+                <p className="contrast" role="status">
+                  Contraste proposé :{' '}
+                  <strong>{draftContrast.toFixed(2)}:1</strong> ·{' '}
+                  {draftContrast >= 4.5
+                    ? 'AA texte courant'
+                    : 'Contraste à améliorer'}
+                </p>
+              )}
+            </section>
 
-          <section aria-labelledby="preview-title" className="settings-section">
-            <h2 id="preview-title">Aperçu</h2>
-            <div className="field-row">
-              <label className="field">
-                Largeur d’écran
-                <select
-                  value={device}
-                  onChange={(e) =>
-                    showPreview(() => setDevice(Number(e.target.value)))
-                  }
-                >
-                  {devices.map((d, i) => (
-                    <option key={d.width} value={i}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Scénario
-                <select
-                  value={scenario}
-                  onChange={(e) =>
-                    showPreview(() => setScenario(e.target.value))
-                  }
-                >
-                  <option value="cards">Découvrir</option>
-                  <option value="form">Inscription</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section className="settings-section">
-            <ProjectBrief />
-          </section>
-          <section className="settings-section">
-            <FigmaPanel
-              tokens={state.tokens}
-              revision={state.revision}
-              onProposal={setProposal}
-            />
-          </section>
-          <section className="settings-section">
-            <button
-              className="wide"
-              onClick={() => setHistoryOpen(true)}
-              aria-haspopup="dialog"
+            <section
+              aria-labelledby="preview-title"
+              className="settings-section"
             >
-              Voir l’historique ({state.history.length})
-            </button>
-          </section>
+              <h3 id="preview-title">Aperçu</h3>
+              <div className="field-row">
+                <label className="field">
+                  Largeur d’écran
+                  <select
+                    value={device}
+                    onChange={(e) =>
+                      showPreview(() => setDevice(Number(e.target.value)))
+                    }
+                  >
+                    {devices.map((d, i) => (
+                      <option key={d.width} value={i}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  Scénario
+                  <select
+                    value={scenario}
+                    onChange={(e) =>
+                      showPreview(() => setScenario(e.target.value))
+                    }
+                  >
+                    <option value="cards">Découvrir</option>
+                    <option value="form">Inscription</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <ProjectBrief />
+            </section>
+            <section className="settings-section">
+              <FigmaPanel
+                tokens={state.tokens}
+                revision={state.revision}
+                onProposal={setProposal}
+              />
+            </section>
+            <section className="settings-section">
+              <button
+                className="wide"
+                onClick={() => setHistoryOpen(true)}
+                aria-haspopup="dialog"
+              >
+                Voir l’historique ({state.history.length})
+              </button>
+            </section>
+          </details>
         </div>
       </aside>
 

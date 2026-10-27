@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { proposeSchema } from '../shared/model.js';
 import { Store, StudioError } from './store.js';
 import { ProjectStore } from './project.js';
+import { ComponentStore } from './components.js';
 import { projectSchema } from '../shared/project.js';
 import { CodexAdapter } from '../../connectors/agents/codex.js';
 import { unvalidatedAdapter } from '../../connectors/agents/unvalidated.js';
@@ -31,6 +32,7 @@ export async function createStudioServer(options: {
     gemini: unvalidatedAdapter('gemini'),
   };
   const project = new ProjectStore(store.directory);
+  const components = new ComponentStore(store.directory);
   const figma = new FigmaBridge(store.directory);
   await figma.init();
   const csrf = randomBytes(32).toString('hex');
@@ -122,6 +124,8 @@ export async function createStudioServer(options: {
             );
           if (url.pathname === '/api/project')
             return send(200, await project.read());
+          if (url.pathname === '/api/components')
+            return send(200, await components.read());
           if (url.pathname === '/api/state') return send(200, store.snapshot());
           if (url.pathname === '/api/figma') {
             const imported = await figma.lastImport();
@@ -183,6 +187,14 @@ export async function createStudioServer(options: {
             .strict()
             .parse(body);
           return send(200, await project.save(b.base, b.project));
+        }
+        if (url.pathname === '/api/components/save') {
+          const b = z.object({ component: z.unknown() }).strict().parse(body);
+          return send(200, await components.save(b.component));
+        }
+        if (url.pathname === '/api/components/delete') {
+          const b = z.object({ id: z.string().uuid() }).strict().parse(body);
+          return send(200, await components.remove(b.id));
         }
         if (url.pathname === '/api/figma/pair-reset') {
           await figma.resetPairing();

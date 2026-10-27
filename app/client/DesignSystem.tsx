@@ -1,5 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { tokenCss, type Tokens } from '../shared/model.js';
+import { componentCss, type DSComponent } from '../shared/component.js';
 
 export function DSProvider({
   tokens,
@@ -118,7 +119,22 @@ export function Navigation() {
     </nav>
   );
 }
-export function Catalogue({ tokens }: { tokens: Tokens }) {
+// Composant créé à la main : le style vient du modèle, les tokens restent des var().
+export function ComponentView({ component }: { component: DSComponent }) {
+  return (
+    <div className="ds-custom" style={componentCss(component) as CSSProperties}>
+      {component.icon && <span aria-hidden="true">{component.icon}</span>}
+      <span>{component.label}</span>
+    </div>
+  );
+}
+export function Catalogue({
+  tokens,
+  extra,
+}: {
+  tokens: Tokens;
+  extra?: ReactNode;
+}) {
   return (
     <DSProvider tokens={tokens}>
       <div className="catalogue">
@@ -149,6 +165,12 @@ export function Catalogue({ tokens }: { tokens: Tokens }) {
           <div className="section-label">04 / NAVIGATION</div>
           <Navigation />
         </section>
+        {extra && (
+          <section className="catalogue-custom">
+            <div className="section-label">05 / MES COMPOSANTS</div>
+            {extra}
+          </section>
+        )}
       </div>
     </DSProvider>
   );
