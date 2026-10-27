@@ -5698,6 +5698,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		pageName: string().max(200),
 		created: number().int().min(0),
 		updated: number().int().min(0),
+		/** Ids DS-Studio des éléments créés par cet export (les autres ont été mis à jour). */
+		createdIds: array(string().max(200)).max(1e3),
 		warnings: array(string().max(500)).max(200),
 		/** Éléments DS-Studio présents dans Figma mais absents de l'app : signalés, jamais supprimés. */
 		orphans: array(object({
@@ -5839,6 +5841,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	}
 	commands.export_design_system = async ({ transfer }, id) => new Exporter(id, payloadOf(transfer, "design_system")).run();
 	commands.export_preview = async ({ transfer }, id) => new Exporter(id, payloadOf(transfer, "preview")).run();
+	function insideInstance(node) {
+		for (let n = node; n && n.type !== "PAGE"; n = n.parent) if (n.type === "INSTANCE") return true;
+		return false;
+	}
 	var STYLE_BY_WEIGHT = {
 		100: "Thin",
 		200: "Extra Light",
@@ -5868,6 +5874,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			_defineProperty(this, "id", void 0);
 			_defineProperty(this, "payload", void 0);
 			_defineProperty(this, "created", 0);
+			_defineProperty(this, "createdIds", []);
 			_defineProperty(this, "updated", 0);
 			_defineProperty(this, "warnings", /* @__PURE__ */ new Set());
 			_defineProperty(this, "step", 0);
@@ -5880,6 +5887,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			_defineProperty(this, "effectStyles", /* @__PURE__ */ new Map());
 			_defineProperty(this, "components", /* @__PURE__ */ new Map());
 			_defineProperty(this, "touched", []);
+			_defineProperty(this, "duplicates", /* @__PURE__ */ new Map());
 			this.id = id;
 			this.payload = payload;
 			const p = payload;
@@ -5901,8 +5909,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		mark(node, key, isNew) {
 			node.setPluginData(PLUGIN_DATA_KEY, key);
 			this.index.set(key, node);
-			if (isNew) this.created += 1;
-			else this.updated += 1;
+			if (isNew) {
+				this.created += 1;
+				this.createdIds.push(key);
+			} else this.updated += 1;
 		}
 		async font(family, weight) {
 			var _STYLE_BY_WEIGHT;
@@ -5978,6 +5988,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					pageName: this.page.name,
 					created: this.created,
 					updated: this.updated,
+					createdIds: this.createdIds.slice(0, 1e3),
 					warnings: [...this.warnings].slice(0, 200),
 					orphans: this.payload.kind === "design_system" ? await this.orphans() : []
 				};
@@ -6016,8 +6027,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					this.warnings.add(`Page « ${page.name} » non chargée par Figma : ses éléments DS-Studio n’ont pas été recherchés.`);
 					continue;
 				}
-				for (const n of page.findAllWithCriteria({ pluginData: { keys: [PLUGIN_DATA_KEY] } })) this.index.set(n.getPluginData(PLUGIN_DATA_KEY), n);
+				for (const n of page.findAllWithCriteria({ pluginData: { keys: [PLUGIN_DATA_KEY] } })) {
+					var _this$duplicates$get;
+					if (insideInstance(n)) continue;
+					const key = n.getPluginData(PLUGIN_DATA_KEY);
+					const first = this.index.get(key);
+					if (!first) this.index.set(key, n);
+					else if (first.type === n.type) this.duplicates.set(key, [...(_this$duplicates$get = this.duplicates.get(key)) !== null && _this$duplicates$get !== void 0 ? _this$duplicates$get : [first], n]);
+				}
 			}
+			for (const [key, nodes] of this.duplicates) this.warnings.add(`Doublon : ${nodes.length} éléments portent l’id « ${key} » (${nodes.map((n) => n.id).join(", ")}) ; le premier est mis à jour, les autres sont à supprimer à la main.`);
 		}
 		rememberPage() {
 			let known = [];

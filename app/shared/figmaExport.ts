@@ -191,6 +191,8 @@ export const exportResultSchema = z
     pageName: z.string().max(200),
     created: z.number().int().min(0),
     updated: z.number().int().min(0),
+    /** Ids DS-Studio des éléments créés par cet export (les autres ont été mis à jour). */
+    createdIds: z.array(z.string().max(200)).max(1000),
     warnings: z.array(z.string().max(500)).max(200),
     /** Éléments DS-Studio présents dans Figma mais absents de l'app : signalés, jamais supprimés. */
     orphans: z

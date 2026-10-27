@@ -147,6 +147,11 @@ commands.export_preview = async ({ transfer }, id) =>
   new Exporter(id, payloadOf(transfer, 'preview')).run();
 
 // ---------- Export : moteur ----------
+function insideInstance(node: any) {
+  for (let n = node; n && n.type !== 'PAGE'; n = n.parent)
+    if (n.type === 'INSTANCE') return true;
+  return false;
+}
 const STYLE_BY_WEIGHT: Record<number, string> = {
   100: 'Thin',
   200: 'Extra Light',
@@ -170,6 +175,7 @@ const PAGES_KEY = 'dsStudioPages';
 
 class Exporter {
   private created = 0;
+  private createdIds: string[] = [];
   private updated = 0;
   private warnings = new Set<string>();
   private step = 0;
@@ -182,6 +188,7 @@ class Exporter {
   private effectStyles = new Map<string, any>();
   private components = new Map<string, any>();
   private touched: any[] = [];
+  private duplicates = new Map<string, any[]>();
   constructor(
     private id: string,
     private payload: ExportPayload,
@@ -209,8 +216,10 @@ class Exporter {
   private mark(node: any, key: string, isNew: boolean) {
     node.setPluginData(KEY, key);
     this.index.set(key, node);
-    if (isNew) this.created += 1;
-    else this.updated += 1;
+    if (isNew) {
+      this.created += 1;
+      this.createdIds.push(key);
+    } else this.updated += 1;
   }
   private async font(family: string, weight: number) {
     const style = STYLE_BY_WEIGHT[Math.round(weight / 100) * 100] ?? 'Regular';
@@ -273,6 +282,7 @@ class Exporter {
         pageName: this.page.name,
         created: this.created,
         updated: this.updated,
+        createdIds: this.createdIds.slice(0, 1000),
         warnings: [...this.warnings].slice(0, 200),
         orphans:
           this.payload.kind === 'design_system' ? await this.orphans() : [],
@@ -318,9 +328,26 @@ class Exporter {
         );
         continue;
       }
-      for (const n of page.findAllWithCriteria({ pluginData: { keys: [KEY] } }))
-        this.index.set(n.getPluginData(KEY), n);
+      for (const n of page.findAllWithCriteria({
+        pluginData: { keys: [KEY] },
+      })) {
+        // Une instance (et ses calques) porte les pluginData de son composant :
+        // ce n'est jamais l'élément exporté lui-même.
+        if (insideInstance(n)) continue;
+        const key = n.getPluginData(KEY);
+        const first = this.index.get(key);
+        if (!first) this.index.set(key, n);
+        else if (first.type === n.type)
+          this.duplicates.set(key, [
+            ...(this.duplicates.get(key) ?? [first]),
+            n,
+          ]);
+      }
     }
+    for (const [key, nodes] of this.duplicates)
+      this.warnings.add(
+        `Doublon : ${nodes.length} éléments portent l’id « ${key} » (${nodes.map((n: any) => n.id).join(', ')}) ; le premier est mis à jour, les autres sont à supprimer à la main.`,
+      );
   }
   private rememberPage() {
     let known: string[] = [];

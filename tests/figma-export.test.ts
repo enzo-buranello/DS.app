@@ -95,6 +95,8 @@ function mockFigma() {
         width: c.width,
         height: c.height,
       });
+      // Comme Figma : une instance porte les pluginData de son composant.
+      inst.getPluginData = (k: string) => c.getPluginData(k);
       for (const t of c.findAll((x: Any) => x.type === 'TEXT'))
         inst.appendChild(
           node('TEXT', { characters: t.characters, fontName: t.fontName }),
@@ -429,8 +431,11 @@ function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
   } as ExportPayload;
 }
 const plain = (v: unknown): Any => JSON.parse(JSON.stringify(v));
+// Éléments exportés (les instances portent aussi l'id de leur composant).
 const byKey = (m: ReturnType<typeof mockFigma>, key: string) =>
-  m.docRoot.findAll((n: Any) => n.getPluginData('dsStudioId') === key);
+  m.docRoot.findAll(
+    (n: Any) => n.type !== 'INSTANCE' && n.getPluginData('dsStudioId') === key,
+  );
 
 test('export DS : variables liées, styles, component set, instance, planches, progression', async () => {
   const m = mockFigma();
@@ -537,6 +542,7 @@ test('ré-export : mise à jour sur place, aucun doublon, orphelins signalés sa
   assert.equal(r.ok, true, r.error);
   assert.deepEqual(counts(), before);
   assert.equal(r.result.created, 0);
+  assert.deepEqual(r.result.createdIds, []);
   assert.ok(r.result.updated > 10);
   assert.match(r.result.warnings.join(), /existait : elle a été réutilisée/);
   assert.equal(byKey(m, 'button/primary')[0], primary);
@@ -686,4 +692,24 @@ test('export : page impossible à charger (réseau Figma) signalée, export pour
   const fail = await m.exportPayload(dsPayload({ page: { mode: 'current' } }));
   assert.equal(fail.ok, false);
   assert.match(fail.error, /Figma n’arrive pas à charger la page/);
+});
+
+test('doublons d’un ancien export : signalés, le premier est mis à jour, rien supprimé', async () => {
+  const m = mockFigma();
+  await m.exportPayload(dsPayload());
+  const [primary] = byKey(m, 'button/primary');
+  // Simule le doublon laissé par une version précédente du plugin.
+  const copy = m.figma.createComponent();
+  copy.setPluginData('dsStudioId', 'button/primary');
+  primary.parent.appendChild(copy);
+  const r = await m.exportPayload(dsPayload());
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.result.createdIds, []);
+  assert.match(
+    r.result.warnings.join(),
+    new RegExp(
+      `Doublon : 2 éléments portent l’id « button/primary » \\(${primary.id}, ${copy.id}\\)`,
+    ),
+  );
+  assert.equal(copy.removed, false);
 });

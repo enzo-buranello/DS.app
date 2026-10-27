@@ -994,6 +994,7 @@ async function figmaPlugin(fileName: string) {
       pageId: '0:9',
       pageName: payload.page.mode === 'new' ? payload.page.name : 'Composants',
       created: exports.length === 1 ? 12 : 0,
+      createdIds: [],
       updated: exports.length === 1 ? 0 : 12,
       warnings: ['Police « system-ui » absente dans Figma : Inter utilisée.'],
       orphans: [],
