@@ -5,6 +5,7 @@ import {
   commandParams,
   DEFAULT_FIGMA_PORT,
   FIGMA_TIMEOUT_MS,
+  helloSchema,
   progressSchema,
   responseSchema,
   type ExportJob,
@@ -125,11 +126,20 @@ class Socket {
   }
 }
 
+// Un plugin ouvert dans un fichier Figma : identifié par la clé du fichier.
+interface Connection {
+  socket: Socket;
+  fileKey: string | null;
+  fileName: string | null;
+}
+
 export class FigmaBridge {
   private server: http.Server | null = null;
-  private plugin: Socket | null = null;
-  private fileName: string | null = null;
+  /** Ordre d'arrivée : la dernière sert par défaut quand aucune cible n'est fixée. */
+  private connections: Connection[] = [];
   private error: string | null = null;
+  /** Appelé quand un fichier se connecte (clé connue) : file d'attente de synchro. */
+  onFile: (fileKey: string) => void = () => {};
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private pending = new Map<
     string,
@@ -137,26 +147,40 @@ export class FigmaBridge {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      connection: Connection;
       onProgress?: (p: { done: number; total: number; label: string }) => void;
     }
   >();
-  private jobs = new Map<string, ExportJob & { requestId?: string }>();
+  private jobs = new Map<
+    string,
+    ExportJob & { requestId?: string; connection?: Connection }
+  >();
   constructor(
     private port = DEFAULT_FIGMA_PORT,
     private timeout = FIGMA_TIMEOUT_MS,
   ) {}
 
   get status(): FigmaStatus {
+    const latest = this.connections.at(-1);
     return {
-      state: !this.server
-        ? 'disconnected'
-        : this.plugin
-          ? 'connected'
-          : 'waiting',
+      state: !this.server ? 'disconnected' : latest ? 'connected' : 'waiting',
       port: this.port,
-      fileName: this.plugin ? this.fileName : null,
+      fileName: latest?.fileName ?? null,
       error: this.error,
+      connections: this.connections.map((c) => ({
+        fileKey: c.fileKey,
+        fileName: c.fileName,
+      })),
     };
+  }
+  /** Le plugin tourne-t-il dans ce fichier ? */
+  has(fileKey: string) {
+    return this.connections.some((c) => c.fileKey === fileKey);
+  }
+  // Fichier demandé, sinon la connexion la plus récente.
+  private pick(fileKey?: string) {
+    if (fileKey === undefined) return this.connections.at(-1);
+    return this.connections.find((c) => c.fileKey === fileKey);
   }
   /** Écoute uniquement sur 127.0.0.1. Un port occupé laisse l'app utilisable. */
   async listen() {
@@ -181,17 +205,19 @@ export class FigmaBridge {
     this.server = server;
     this.error = null;
     this.heartbeat = setInterval(() => {
-      const plugin = this.plugin;
-      if (!plugin) return;
-      if (!plugin.alive) return plugin.close(1001, 'Plugin muet');
-      plugin.alive = false;
-      plugin.ping();
+      for (const { socket } of this.connections) {
+        if (!socket.alive) socket.close(1001, 'Plugin muet');
+        else {
+          socket.alive = false;
+          socket.ping();
+        }
+      }
     }, HEARTBEAT_MS);
     this.heartbeat.unref();
   }
   async close() {
     if (this.heartbeat) clearInterval(this.heartbeat);
-    this.plugin?.close(1001, 'DS-Studio fermé');
+    for (const c of this.connections) c.socket.close(1001, 'DS-Studio fermé');
     const server = this.server;
     this.server = null;
     if (server) await new Promise<void>((r) => server.close(() => r()));
@@ -220,16 +246,17 @@ export class FigmaBridge {
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
     const ws = new Socket(socket);
-    // Un seul plugin : une reconnexion remplace l'ancienne connexion.
-    this.plugin?.close(1000, 'Remplacé par une nouvelle connexion');
-    this.plugin = ws;
-    this.fileName = null;
-    ws.onMessage = (text) => this.receive(text);
+    const connection: Connection = {
+      socket: ws,
+      fileKey: null,
+      fileName: null,
+    };
+    this.connections.push(connection);
+    ws.onMessage = (text) => this.receive(text, connection);
     ws.onClose = () => {
-      if (this.plugin !== ws) return;
-      this.plugin = null;
-      this.fileName = null;
+      this.connections = this.connections.filter((c) => c !== connection);
       for (const [id, p] of this.pending) {
+        if (p.connection !== connection) continue;
         clearTimeout(p.timer);
         p.reject(
           new StudioError('Plugin Figma déconnecté pendant la commande.', 503),
@@ -237,21 +264,45 @@ export class FigmaBridge {
         this.pending.delete(id);
       }
     };
-    // Nom du fichier ouvert, pour l'indicateur d'état.
-    this.request('get_document_info', {})
+    // Plugin plus ancien (sans annonce) : le fichier est demandé.
+    this.send('get_document_info', {}, { connection })
       .then((info) => {
-        if (this.plugin === ws)
-          this.fileName =
-            String((info as { name?: string }).name ?? '') || null;
+        const i = info as { name?: string; fileKey?: string | null };
+        if (connection.fileName === null)
+          this.identify(connection, i.fileKey ?? null, String(i.name ?? ''));
       })
       .catch(() => {});
   }
-  private receive(text: string) {
+  // Fichier connu : une connexion plus ancienne sur le même fichier est remplacée.
+  private identify(
+    connection: Connection,
+    fileKey: string | null,
+    fileName: string,
+  ) {
+    if (!this.connections.includes(connection)) return;
+    connection.fileKey = fileKey;
+    connection.fileName = fileName || null;
+    for (const other of this.connections)
+      if (other !== connection && other.fileKey === fileKey)
+        other.socket.close(1000, 'Remplacé par une nouvelle connexion');
+    // Le plus récent passe en dernier : c'est la connexion par défaut.
+    this.connections = [
+      ...this.connections.filter((c) => c !== connection),
+      connection,
+    ];
+    if (fileKey) this.onFile(fileKey);
+  }
+  private receive(text: string, connection: Connection) {
     let raw: unknown;
     try {
       raw = JSON.parse(text);
     } catch {
       return;
+    }
+    const hello = helloSchema.safeParse(raw);
+    if (hello.success) {
+      const { fileKey, fileName } = hello.data.hello;
+      return this.identify(connection, fileKey, fileName);
     }
     const progress = progressSchema.safeParse(raw);
     if (progress.success) {
@@ -272,8 +323,14 @@ export class FigmaBridge {
       );
   }
   /** Envoie une commande au plugin et attend sa réponse (10 s maximum). */
-  request(command: FigmaCommand, params: unknown): Promise<unknown> {
-    return this.send(command, commandParams[command].parse(params));
+  request(
+    command: FigmaCommand,
+    params: unknown,
+    fileKey?: string,
+  ): Promise<unknown> {
+    return this.send(command, commandParams[command].parse(params), {
+      fileKey,
+    });
   }
   private send(
     command: FigmaCommand | InternalCommand,
@@ -281,17 +338,21 @@ export class FigmaBridge {
     options: {
       timeout?: number;
       id?: string;
+      fileKey?: string;
+      connection?: Connection;
       onProgress?: (p: { done: number; total: number; label: string }) => void;
     } = {},
   ): Promise<unknown> {
     const timeout = options.timeout ?? this.timeout;
-    const plugin = this.plugin;
-    if (!plugin)
+    const connection = options.connection ?? this.pick(options.fileKey);
+    if (!connection)
       return Promise.reject(
         new StudioError(
-          this.server
-            ? 'Plugin Figma non connecté : lancez DS-Studio Bridge dans Figma Desktop.'
-            : (this.error ?? 'Pont Figma inactif.'),
+          !this.server
+            ? (this.error ?? 'Pont Figma inactif.')
+            : options.fileKey
+              ? 'Fichier Figma cible non ouvert : lancez le plugin DS-Studio dans ce fichier.'
+              : 'Plugin Figma non connecté : lancez DS-Studio Bridge dans Figma Desktop.',
           503,
         ),
       );
@@ -310,22 +371,27 @@ export class FigmaBridge {
         resolve,
         reject,
         timer,
+        connection,
         onProgress: options.onProgress,
       });
-      plugin.send(JSON.stringify({ id, command, params: valid }));
+      connection.socket.send(JSON.stringify({ id, command, params: valid }));
     });
   }
 
   /** Export en tâche de fond : payload découpé en lots, progression, annulation. */
-  startExport(payload: ExportPayload) {
-    if (!this.plugin)
+  startExport(payload: ExportPayload, fileKey?: string) {
+    const connection = this.pick(fileKey);
+    if (!connection)
       throw new StudioError(
-        'Lance le plugin DS-Studio dans Figma desktop.',
+        fileKey
+          ? 'Fichier Figma cible non ouvert : lance le plugin DS-Studio dans ce fichier.'
+          : 'Lance le plugin DS-Studio dans Figma desktop.',
         503,
       );
     if ([...this.jobs.values()].some((j) => j.state === 'running'))
       throw new StudioError('Un export est déjà en cours.', 409);
-    const job: ExportJob & { requestId?: string } = {
+    const job: ExportJob & { requestId?: string; connection?: Connection } = {
+      connection,
       id: randomUUID(),
       kind: payload.kind,
       state: 'running',
@@ -344,12 +410,16 @@ export class FigmaBridge {
         for (let index = 0; index < total; index++) {
           if (job.state !== 'running') return;
           job.label = `Envoi au plugin (${index + 1}/${total})…`;
-          await this.send('export_chunk', {
-            transfer,
-            index,
-            total,
-            data: json.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE),
-          });
+          await this.send(
+            'export_chunk',
+            {
+              transfer,
+              index,
+              total,
+              data: json.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE),
+            },
+            { connection },
+          );
         }
         if (job.state !== 'running') return;
         job.requestId = randomUUID();
@@ -360,6 +430,7 @@ export class FigmaBridge {
           { transfer },
           {
             id: job.requestId,
+            connection,
             timeout: EXPORT_TIMEOUT_MS,
             onProgress: (p) => {
               if (job.state !== 'running') return;
@@ -384,7 +455,7 @@ export class FigmaBridge {
   job(id: string): ExportJob {
     const job = this.jobs.get(id);
     if (!job) throw new StudioError('Export inconnu.', 404);
-    const { requestId: _requestId, ...visible } = job;
+    const { requestId: _requestId, connection: _connection, ...visible } = job;
     return visible;
   }
   /** Annule l'export : le plugin s'arrête avant l'élément suivant. */
@@ -394,8 +465,8 @@ export class FigmaBridge {
     if (job.state !== 'running') return this.job(id);
     job.state = 'cancelled';
     job.label = 'Export annulé.';
-    if (job.requestId && this.plugin) {
-      this.plugin.send(
+    if (job.requestId && job.connection) {
+      job.connection.socket.send(
         JSON.stringify({
           id: randomUUID(),
           command: 'cancel',

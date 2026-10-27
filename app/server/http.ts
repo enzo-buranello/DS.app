@@ -8,6 +8,8 @@ import { Store, StudioError } from './store.js';
 import { ProjectStore } from './project.js';
 import { ComponentStore } from './components.js';
 import type { FigmaBridge } from './figmaBridge.js';
+import { FigmaSync, openFigmaUrl } from './figmaSync.js';
+import { parseFigmaUrl } from '../shared/figmaTarget.js';
 import { figmaCommands } from '../shared/figmaProtocol.js';
 import { exportPayloadSchema } from '../shared/figmaExport.js';
 import { componentSchema } from '../shared/component.js';
@@ -31,6 +33,8 @@ export async function createStudioServer(options: {
   agent?: AgentAdapter;
   claude?: AgentAdapter;
   figma?: FigmaBridge;
+  /** Ouverture système d'un lien Figma (remplaçable dans les tests). */
+  openUrl?: (url: string) => unknown;
   dev?: boolean;
   control?: { record: RecordInfo; stop: () => void };
 }) {
@@ -42,6 +46,16 @@ export async function createStudioServer(options: {
   };
   const project = new ProjectStore(store.directory);
   const components = new ComponentStore(store.directory);
+  const figmaSync = options.figma
+    ? new FigmaSync(store.directory, options.figma)
+    : null;
+  await figmaSync?.load();
+  const openUrl = options.openUrl ?? openFigmaUrl;
+  const needFigma = () => {
+    if (!options.figma || !figmaSync)
+      throw new StudioError('Pont Figma non démarré.', 503);
+    return { bridge: options.figma, sync: figmaSync };
+  };
   const csrf = randomBytes(32).toString('hex');
   let busy = false;
   const active = new Set<AbortController>();
@@ -128,12 +142,17 @@ export async function createStudioServer(options: {
           if (url.pathname === '/api/figma/status')
             return send(
               200,
-              options.figma?.status ?? {
-                state: 'disconnected',
-                port: 0,
-                fileName: null,
-                error: 'Pont Figma non démarré.',
-              },
+              options.figma && figmaSync
+                ? { ...options.figma.status, ...figmaSync.summary() }
+                : {
+                    state: 'disconnected',
+                    port: 0,
+                    fileName: null,
+                    error: 'Pont Figma non démarré.',
+                    connections: [],
+                    target: null,
+                    targetConnected: false,
+                  },
             );
           const job = url.pathname.match(
             /^\/api\/figma\/export\/([0-9a-f-]{36})$/,
@@ -202,21 +221,46 @@ export async function createStudioServer(options: {
             })
             .strict()
             .parse(body);
-          if (!options.figma)
-            throw new StudioError('Pont Figma non démarré.', 503);
-          const result = await options.figma.request(
+          const { bridge, sync } = needFigma();
+          const result = await bridge.request(
             b.command as (typeof figmaCommands)[number],
             b.params,
+            sync.routeKey,
           );
           return send(200, { ok: true, result });
         }
+        // Cible Figma : fichier et page choisis par URL, mémorisés par projet.
+        if (url.pathname === '/api/figma/target') {
+          const b = z
+            .object({ url: z.string().max(2000) })
+            .strict()
+            .parse(body);
+          return send(200, await needFigma().sync.setTarget(b.url));
+        }
+        if (url.pathname === '/api/figma/target/clear') {
+          z.object({}).strict().parse(body);
+          return send(200, await needFigma().sync.clearTarget());
+        }
+        if (url.pathname === '/api/figma/open') {
+          const b = z
+            .object({ url: z.string().max(2000) })
+            .strict()
+            .parse(body);
+          // Seul un lien de fichier Figma valide part vers l'ouverture système.
+          const parsed = parseFigmaUrl(b.url);
+          if (!parsed.ok) throw new StudioError(parsed.error, 400);
+          return send(200, openUrl(parsed.url));
+        }
         // Export vers Figma : payload validé ici, puis tâche suivie et annulable.
         if (url.pathname === '/api/figma/export') {
-          if (!options.figma)
-            throw new StudioError('Pont Figma non démarré.', 503);
+          const { bridge, sync } = needFigma();
+          // Cible définie : l'export va toujours dans ce fichier, jamais ailleurs.
           return send(
             200,
-            options.figma.startExport(exportPayloadSchema.parse(body)),
+            bridge.startExport(
+              exportPayloadSchema.parse(body),
+              sync.target?.fileKey,
+            ),
           );
         }
         const cancel = url.pathname.match(

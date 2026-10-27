@@ -56,12 +56,16 @@ export default function FigmaExportButton({
   const menuId = useId();
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const connected = status?.state === 'connected';
+  // Cible définie : export toujours vers son fichier et sa page.
+  const fixed = status?.target ?? null;
+  const connected = fixed
+    ? !!status?.targetConnected
+    : status?.state === 'connected';
   const busy = phase !== '';
 
   // Pages du fichier : relues à l'ouverture et à chaque (re)connexion.
   useEffect(() => {
-    if (!open || !connected) return;
+    if (!open || !connected || fixed) return;
     runFigma('get_document_info', {})
       .then((info) => setDoc(info as DocumentInfo))
       .catch((e) => setProblem((e as Error).message));
@@ -100,11 +104,13 @@ export default function FigmaExportButton({
     setNewName(NEW_PAGE[next]);
   }
   const page = (): PageTarget =>
-    target === 'current'
-      ? { mode: 'current' }
-      : target === 'new'
-        ? { mode: 'new', name: newName.trim() || NEW_PAGE[kind] }
-        : { mode: 'existing', id: target };
+    fixed
+      ? { mode: 'existing', id: fixed.pageId }
+      : target === 'current'
+        ? { mode: 'current' }
+        : target === 'new'
+          ? { mode: 'new', name: newName.trim() || NEW_PAGE[kind] }
+          : { mode: 'existing', id: target };
   function report(result: ExportResult) {
     const parts = [
       `Export ${KIND_LABEL[kind]} vers « ${result.pageName} » : ${result.created} créé(s), ${result.updated} mis à jour.`,
@@ -180,7 +186,9 @@ export default function FigmaExportButton({
           {!connected ? (
             <>
               <p className="export-problem" role="status">
-                Lance le plugin DS-Studio dans Figma desktop.
+                {fixed
+                  ? `Lance le plugin DS-Studio dans le fichier cible « ${fixed.fileName} ».`
+                  : 'Lance le plugin DS-Studio dans Figma desktop.'}
               </p>
               <button type="button" onClick={() => void figmaStatus()}>
                 Réessayer
@@ -189,7 +197,15 @@ export default function FigmaExportButton({
           ) : (
             <>
               <p className="export-file">
-                Fichier Figma : <strong>{status?.fileName}</strong>
+                {fixed ? (
+                  <>
+                    Cible : <strong>{fixed.fileName}</strong> / {fixed.pageName}
+                  </>
+                ) : (
+                  <>
+                    Fichier Figma : <strong>{status?.fileName}</strong>
+                  </>
+                )}
               </p>
               <div
                 className="segmented"
@@ -208,28 +224,30 @@ export default function FigmaExportButton({
                   </button>
                 ))}
               </div>
-              <label className="field">
-                Page cible
-                <select
-                  value={target}
-                  disabled={busy}
-                  onChange={(e) => setTarget(e.target.value)}
-                >
-                  <option value="current">
-                    Page courante
-                    {doc?.currentPage ? ` (${doc.currentPage.name})` : ''}
-                  </option>
-                  {(doc?.pages ?? [])
-                    .filter((p) => p.id !== doc?.currentPage?.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  <option value="new">Nouvelle page…</option>
-                </select>
-              </label>
-              {target === 'new' && (
+              {!fixed && (
+                <label className="field">
+                  Page cible
+                  <select
+                    value={target}
+                    disabled={busy}
+                    onChange={(e) => setTarget(e.target.value)}
+                  >
+                    <option value="current">
+                      Page courante
+                      {doc?.currentPage ? ` (${doc.currentPage.name})` : ''}
+                    </option>
+                    {(doc?.pages ?? [])
+                      .filter((p) => p.id !== doc?.currentPage?.id)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    <option value="new">Nouvelle page…</option>
+                  </select>
+                </label>
+              )}
+              {!fixed && target === 'new' && (
                 <label className="field">
                   Nom de la nouvelle page
                   <input

@@ -57,6 +57,7 @@ test('pont Figma : état, aller-retour, erreur, délai, paramètres, gros messag
     port,
     fileName: null,
     error: null,
+    connections: [],
   });
   await assert.rejects(
     () => bridge.request('ping', {}),

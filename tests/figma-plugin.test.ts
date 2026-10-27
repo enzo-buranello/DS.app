@@ -64,10 +64,12 @@ function mockFigma() {
     { family: 'Inter', style: 'Bold' },
   ];
   page.appendChild(text);
+  const screens = node('PAGE', { id: '0:2', name: 'Écrans' });
+  nodes['0:2'] = screens;
   const messages: Any[] = [];
   const figma: Any = {
     mixed,
-    root: { name: 'Nosh', children: [page, { id: '0:2', name: 'Écrans' }] },
+    root: { name: 'Nosh', children: [page, screens] },
     fileKey: 'iUWEVG8MtolVVF3uv2f24U',
     currentPage: page,
     showUI() {},
@@ -75,6 +77,7 @@ function mockFigma() {
     viewport: { scrollAndZoomIntoView() {} },
     createFrame: () => node('FRAME', { fills: [] }),
     getNodeByIdAsync: async (i: string) => nodes[i] ?? null,
+    setCurrentPageAsync: async (p: Any) => (figma.currentPage = p),
     loadFontAsync: async (f: Any) => {
       loaded.push(`${f.family}|${f.style}`);
     },
@@ -85,7 +88,7 @@ function mockFigma() {
     await figma.ui.onmessage({ id: 'r' + before, command, params });
     return JSON.parse(JSON.stringify(messages[before]));
   };
-  return { send, page, text, figma };
+  return { send, page, screens, text, figma, messages };
 }
 
 test('plugin : ping, document, sélection, nœud', async () => {
@@ -160,6 +163,42 @@ test('plugin : créer une frame, modifier un texte (polices chargées), supprime
   );
 });
 
+test('plugin : annonce du fichier, infos, page cible par node-id', async () => {
+  const { send, page, screens, figma, messages } = mockFigma();
+  // Annonce envoyée au démarrage : ui.html la relaie à chaque connexion.
+  assert.deepEqual(JSON.parse(JSON.stringify(messages[0])), {
+    hello: { fileKey: 'iUWEVG8MtolVVF3uv2f24U', fileName: 'Nosh' },
+  });
+  const info = (await send('get_file_info')).result;
+  assert.equal(info.fileKey, 'iUWEVG8MtolVVF3uv2f24U');
+  assert.equal(info.currentPage.name, 'Composants');
+  // Nœud d'une autre page : le plugin passe sur sa page parente.
+  const card = figma.createFrame();
+  screens.appendChild(card);
+  const inner = figma.createFrame();
+  card.appendChild(inner);
+  const moved = (await send('set_target_page', { nodeId: inner.id })).result;
+  assert.deepEqual(moved, { pageId: '0:2', pageName: 'Écrans', warning: null });
+  assert.equal(figma.currentPage, screens);
+  // L'id d'une page vise la page elle-même.
+  const self = (await send('set_target_page', { nodeId: '0:1' })).result;
+  assert.equal(self.pageName, 'Composants');
+  assert.equal(figma.currentPage, page);
+  // Nœud introuvable ou supprimé : page courante + avertissement.
+  const missing = (await send('set_target_page', { nodeId: '99:1' })).result;
+  assert.equal(missing.pageId, '0:1');
+  assert.match(missing.warning, /Nœud 99:1 introuvable : page courante/);
+  inner.remove();
+  const ghost = (await send('set_target_page', { nodeId: inner.id })).result;
+  assert.match(ghost.warning, /introuvable/);
+  const none = (await send('set_target_page', { nodeId: null })).result;
+  assert.deepEqual(none, {
+    pageId: '0:1',
+    pageName: 'Composants',
+    warning: null,
+  });
+});
+
 test('manifest : réseau limité à ws://localhost:3055', async () => {
   const manifest = JSON.parse(
     await readFile(path.join(root, 'figma-plugin/manifest.json'), 'utf8'),
@@ -168,6 +207,8 @@ test('manifest : réseau limité à ws://localhost:3055', async () => {
     'ws://localhost:3055',
   ]);
   assert.deepEqual(manifest.networkAccess.allowedDomains, ['none']);
+  // figma.fileKey n'est fourni qu'à un plugin privé.
+  assert.equal(manifest.enablePrivatePluginApi, true);
   const ui = await readFile(path.join(root, 'figma-plugin/ui.html'), 'utf8');
   assert.match(ui, /ws:\/\/localhost:3055/);
 });

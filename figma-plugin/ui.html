@@ -48,6 +48,8 @@
   const $ = (id) => document.getElementById(id);
   let socket = null;
   let delay = 1000;
+  // Annonce du fichier (clé, nom) reçue du code du plugin, renvoyée à chaque connexion.
+  let hello = null;
   const show = (on, label, detail) => {
     $('state').dataset.on = String(on);
     $('label').textContent = label;
@@ -58,6 +60,7 @@
     socket = new WebSocket(URL_DS);
     socket.onopen = () => {
       delay = 1000;
+      if (hello) socket.send(JSON.stringify(hello));
       show(true, 'Connecté à DS-Studio', 'Laissez ce plugin ouvert.');
     };
     socket.onmessage = (event) => {
@@ -82,6 +85,7 @@
   }
   onmessage = (event) => {
     const msg = event.data.pluginMessage;
+    if (msg && msg.hello) hello = msg;
     if (msg && socket && socket.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify(msg));
   };

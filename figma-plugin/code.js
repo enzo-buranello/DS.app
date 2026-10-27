@@ -5725,6 +5725,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	});
 	var num = (v) => typeof v === "number" && isFinite(v) ? v : null;
 	var post = (msg) => figma.ui.postMessage(msg);
+	var fileKey = () => typeof figma.fileKey === "string" ? figma.fileKey : null;
+	post({ hello: {
+		fileKey: fileKey(),
+		fileName: String(figma.root.name)
+	} });
 	function fills(node) {
 		if (!("fills" in node) || !Array.isArray(node.fills)) return null;
 		return node.fills.filter((p) => p.type === "SOLID").map((p) => {
@@ -5773,7 +5778,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}),
 		get_document_info: async () => ({
 			name: figma.root.name,
-			fileKey: typeof figma.fileKey === "string" ? figma.fileKey : null,
+			fileKey: fileKey(),
 			currentPage: {
 				id: figma.currentPage.id,
 				name: figma.currentPage.name
@@ -5783,6 +5788,38 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				name: p.name
 			}))
 		}),
+		get_file_info: async () => ({
+			fileKey: fileKey(),
+			name: figma.root.name,
+			currentPage: {
+				id: figma.currentPage.id,
+				name: figma.currentPage.name
+			},
+			pages: figma.root.children.map((p) => ({
+				id: p.id,
+				name: p.name
+			}))
+		}),
+		set_target_page: async ({ nodeId }) => {
+			var _page;
+			let page = null;
+			let warning = null;
+			if (nodeId) {
+				const node = await figma.getNodeByIdAsync(nodeId);
+				for (let n = node; n && !n.removed; n = n.parent) if (n.type === "PAGE") {
+					page = n;
+					break;
+				}
+				if (!page) warning = `Nœud ${nodeId} introuvable : page courante « ${figma.currentPage.name} » utilisée.`;
+			}
+			page = (_page = page) !== null && _page !== void 0 ? _page : figma.currentPage;
+			if (page !== figma.currentPage) await figma.setCurrentPageAsync(page);
+			return {
+				pageId: page.id,
+				pageName: page.name,
+				warning
+			};
+		},
 		get_selection: async () => figma.currentPage.selection.map(summary),
 		get_node: async ({ id }) => details(await nodeById(id)),
 		create_frame: async ({ x, y, width, height, name, color }) => {

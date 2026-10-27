@@ -32,6 +32,11 @@ const toRgb = (hex: string) => ({
 });
 const num = (v: unknown) => (typeof v === 'number' && isFinite(v) ? v : null);
 const post = (msg: unknown) => figma.ui.postMessage(msg);
+// figma.fileKey n'existe que pour un plugin privé (enablePrivatePluginApi).
+const fileKey = () =>
+  typeof figma.fileKey === 'string' ? figma.fileKey : null;
+// Annonce du fichier : ui.html la renvoie à chaque (re)connexion au pont.
+post({ hello: { fileKey: fileKey(), fileName: String(figma.root.name) } });
 
 // ---------- Commandes de base ----------
 function fills(node: any) {
@@ -83,10 +88,34 @@ const commands: Record<string, (params: any, id: string) => Promise<unknown>> =
     ping: async () => ({ pong: true, time: Date.now() }),
     get_document_info: async () => ({
       name: figma.root.name,
-      fileKey: typeof figma.fileKey === 'string' ? figma.fileKey : null,
+      fileKey: fileKey(),
       currentPage: { id: figma.currentPage.id, name: figma.currentPage.name },
       pages: figma.root.children.map((p: any) => ({ id: p.id, name: p.name })),
     }),
+    get_file_info: async () => ({
+      fileKey: fileKey(),
+      name: figma.root.name,
+      currentPage: { id: figma.currentPage.id, name: figma.currentPage.name },
+      pages: figma.root.children.map((p: any) => ({ id: p.id, name: p.name })),
+    }),
+    // Page parente du nœud de l'URL ; nœud introuvable : page courante.
+    set_target_page: async ({ nodeId }) => {
+      let page: any = null;
+      let warning: string | null = null;
+      if (nodeId) {
+        const node = await figma.getNodeByIdAsync(nodeId);
+        for (let n = node; n && !n.removed; n = n.parent)
+          if (n.type === 'PAGE') {
+            page = n;
+            break;
+          }
+        if (!page)
+          warning = `Nœud ${nodeId} introuvable : page courante « ${figma.currentPage.name} » utilisée.`;
+      }
+      page = page ?? figma.currentPage;
+      if (page !== figma.currentPage) await figma.setCurrentPageAsync(page);
+      return { pageId: page.id, pageName: page.name, warning };
+    },
     get_selection: async () => figma.currentPage.selection.map(summary),
     get_node: async ({ id }) => details(await nodeById(id)),
     create_frame: async ({ x, y, width, height, name, color }) => {

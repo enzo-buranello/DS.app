@@ -324,6 +324,22 @@ small,
 .export-anchor {
   position: relative;
 }
+.figma-target h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.figma-target form {
+  display: grid;
+  gap: 8px;
+}
+.figma-target p {
+  margin: 0;
+  font-size: 12px;
+}
+.field-error {
+  color: #9f1730;
+  font-size: 12px;
+}
 .export-menu {
   position: absolute;
   top: calc(100% + 6px);

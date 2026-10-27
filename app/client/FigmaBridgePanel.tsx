@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FigmaCommand, FigmaStatus } from '../shared/figmaProtocol.js';
-import { runFigma, useFigmaStatus } from './figma.js';
+import { parseFigmaUrl } from '../shared/figmaTarget.js';
+import {
+  clearFigmaTarget,
+  openFigmaFile,
+  runFigma,
+  setFigmaTarget,
+  useFigmaStatus,
+} from './figma.js';
 
 const LABEL: Record<FigmaStatus['state'], string> = {
   disconnected: 'déconnecté',
@@ -8,9 +15,13 @@ const LABEL: Record<FigmaStatus['state'], string> = {
   connected: 'connecté',
 };
 
-// Indicateur d'état (barre principale) et panneau de test des commandes.
+const WAIT_MS = 60_000;
+
+// Indicateur d'état (barre principale) : un clic ouvre le choix de la cible
+// Figma par URL ; le panneau de test des commandes reste accessible de là.
 export default function FigmaBridgePanel() {
   const status = useFigmaStatus();
+  const [targetOpen, setTargetOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const [nodeId, setNodeId] = useState('');
@@ -65,6 +76,7 @@ export default function FigmaBridgePanel() {
 
   const state = status?.state ?? 'disconnected';
   const connected = state === 'connected';
+  const target = status?.target ?? null;
   const action = (command: FigmaCommand, params: object, label?: string) => (
     <button
       type="button"
@@ -75,20 +87,43 @@ export default function FigmaBridgePanel() {
     </button>
   );
   return (
-    <>
+    <div className="export-anchor">
       <button
         className="figma-status"
-        data-state={state}
+        data-state={
+          target ? (status?.targetConnected ? 'connected' : 'waiting') : state
+        }
         aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
+        aria-expanded={targetOpen}
+        onClick={() => setTargetOpen(!targetOpen)}
         title={status?.error ?? `Pont Figma · port ${status?.port ?? '—'}`}
       >
         <span className="figma-dot" aria-hidden="true" />
         <span aria-live="polite">
-          Figma : {LABEL[state]}
-          {connected && status?.fileName ? ` · ${status.fileName}` : ''}
+          {target ? (
+            <>
+              Figma : {target.fileName} / {target.pageName}
+              {status?.targetConnected ? '' : ' · fichier non ouvert'}
+            </>
+          ) : (
+            <>
+              Figma : {LABEL[state]}
+              {connected && status?.fileName ? ` · ${status.fileName}` : ''}
+            </>
+          )}
         </span>
       </button>
+      {targetOpen && (
+        <TargetPopover
+          connections={status?.connections ?? []}
+          target={target}
+          onClose={() => setTargetOpen(false)}
+          onTest={() => {
+            setTargetOpen(false);
+            setOpen(true);
+          }}
+        />
+      )}
       <dialog
         ref={dialog}
         className="figma-test"
@@ -187,6 +222,190 @@ export default function FigmaBridgePanel() {
           )}
         </section>
       </dialog>
-    </>
+    </div>
+  );
+}
+
+// Popover « Cible Figma » : URL du fichier (et du nœud) → fichier et page cibles.
+function TargetPopover({
+  connections,
+  target,
+  onClose,
+  onTest,
+}: {
+  connections: FigmaStatus['connections'];
+  target: { fileName: string; pageName: string; url: string } | null;
+  onClose: () => void;
+  onTest: () => void;
+}) {
+  const [url, setUrl] = useState(target?.url ?? '');
+  const [phase, setPhase] = useState<
+    'idle' | 'checking' | 'waiting' | 'timeout'
+  >('idle');
+  const [waitingKey, setWaitingKey] = useState('');
+  const [fieldError, setFieldError] = useState('');
+  const [problem, setProblem] = useState('');
+  const [warning, setWarning] = useState('');
+  const [done, setDone] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const errorId = useId();
+
+  useEffect(() => {
+    input.current?.focus();
+    const outside = (e: PointerEvent) => {
+      const anchor = box.current?.parentElement;
+      if (!anchor?.contains(e.target as Node)) onClose();
+    };
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [onClose]);
+
+  async function validate() {
+    setFieldError('');
+    setProblem('');
+    setWarning('');
+    setDone('');
+    const parsed = parseFigmaUrl(url);
+    if (!parsed.ok) return setFieldError(parsed.error);
+    setPhase('checking');
+    try {
+      const r = await setFigmaTarget(url);
+      if (r.state === 'ok') {
+        setPhase('idle');
+        setWarning(r.warning ?? '');
+        setDone(`Cible : ${r.target.fileName} / ${r.target.pageName}.`);
+        return;
+      }
+      // Fichier pas encore relié : Figma desktop l'ouvre, on attend le plugin.
+      await openFigmaFile(url).catch((e) => setProblem((e as Error).message));
+      setWaitingKey(r.fileKey);
+      setPhase('waiting');
+    } catch (e) {
+      setPhase('idle');
+      setProblem((e as Error).message);
+    }
+  }
+  // En attente : dès que le plugin du fichier se connecte, la cible est validée.
+  const arrived = connections.some((c) => c.fileKey === waitingKey);
+  useEffect(() => {
+    if (phase !== 'waiting') return;
+    if (arrived) {
+      void validate();
+      return;
+    }
+    const timer = setTimeout(() => setPhase('timeout'), WAIT_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, arrived]);
+
+  return (
+    <div
+      ref={box}
+      className="export-menu figma-target"
+      role="dialog"
+      aria-label="Cible Figma"
+    >
+      <h2>Cible Figma</h2>
+      <p className="export-file">
+        {target ? (
+          <>
+            Actuelle :{' '}
+            <strong>
+              {target.fileName} / {target.pageName}
+            </strong>
+          </>
+        ) : (
+          'Aucune cible : l’export va dans le fichier où le plugin a été lancé en dernier.'
+        )}
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void validate();
+        }}
+      >
+        <label className="field">
+          Lien du fichier ou de la page Figma
+          <input
+            ref={input}
+            value={url}
+            placeholder="https://www.figma.com/design/…?node-id=…"
+            aria-invalid={!!fieldError}
+            aria-describedby={fieldError ? errorId : undefined}
+            disabled={phase === 'checking' || phase === 'waiting'}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setFieldError('');
+            }}
+          />
+        </label>
+        {fieldError && (
+          <p id={errorId} className="field-error" role="alert">
+            {fieldError}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="studio-primary"
+          disabled={phase === 'checking' || phase === 'waiting'}
+        >
+          {phase === 'checking' ? 'Vérification…' : 'Valider la cible'}
+        </button>
+      </form>
+      {phase === 'waiting' && (
+        <p className="export-problem" role="status">
+          Lance le plugin DS-Studio dans ce fichier (Plugins › Development ›
+          DS-Studio Bridge). En attente…
+        </p>
+      )}
+      {phase === 'timeout' && (
+        <div className="control-row">
+          <p className="export-problem" role="alert">
+            Plugin non détecté dans ce fichier après 60 s.
+          </p>
+          <button type="button" onClick={() => void validate()}>
+            Réessayer
+          </button>
+        </div>
+      )}
+      {done && (
+        <p className="notice" role="status">
+          {done}
+        </p>
+      )}
+      {warning && (
+        <p className="export-problem" role="alert">
+          {warning}
+        </p>
+      )}
+      {problem && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
+      )}
+      <div className="control-row">
+        {target && (
+          <button
+            type="button"
+            onClick={() =>
+              void clearFigmaTarget()
+                .then(() => setDone('Cible retirée.'))
+                .catch((e) => setProblem((e as Error).message))
+            }
+          >
+            Retirer la cible
+          </button>
+        )}
+        <button type="button" onClick={onTest}>
+          Panneau de test…
+        </button>
+      </div>
+    </div>
   );
 }
