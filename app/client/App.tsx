@@ -3,6 +3,7 @@ import { Catalogue, ComponentView, Scenario } from './DesignSystem.js';
 import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
 import FigmaExportButton from './FigmaExportButton.js';
+import FigmaBridgePanel from './FigmaBridgePanel.js';
 import ImageImport from './ImageImport.js';
 import { useTokenDraft } from './useTokenDraft.js';
 import { bootstrap, commit, getState, request, type Bootstrap } from './api.js';
@@ -164,6 +165,13 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [previewToolsOpen, setPreviewToolsOpen] = useState(true);
   const [sections, setSection] = useSections();
+  // Ouverture pilotée par le clic : l'évènement « toggle » est asynchrone et
+  // un rendu intercalé (rafraîchissement de l'état) pouvait la contredire.
+  const toggleSection =
+    (id: Parameters<typeof setSection>[0]) => (e: React.MouseEvent) => {
+      e.preventDefault();
+      setSection(id, !sections[id]);
+    };
   const custom = useComponents(setError);
   const [device, setDevice] = useState(1);
   const [scenario, setScenario] = useState('cards');
@@ -407,6 +415,7 @@ export default function App() {
         <h1 className="sr-only">DS-Studio</h1>
         <div className="header-status">
           <span className="local-badge">● Local</span>
+          <FigmaBridgePanel />
           <FigmaExportButton />
           <button onClick={() => setHistoryOpen(true)} aria-haspopup="dialog">
             Historique · r{state.revision}
@@ -555,12 +564,8 @@ export default function App() {
           </span>
         </button>
         <div className="settings-body" id="settings-body" hidden={!panelOpen}>
-          <details
-            className="settings-group"
-            open={sections.create}
-            onToggle={(e) => setSection('create', e.currentTarget.open)}
-          >
-            <summary>
+          <details className="settings-group" open={sections.create}>
+            <summary onClick={toggleSection('create')}>
               <h2>Créer un composant</h2>
             </summary>
             <section className="settings-section">
@@ -578,12 +583,8 @@ export default function App() {
               />
             </section>
           </details>
-          <details
-            className="settings-group"
-            open={sections.image}
-            onToggle={(e) => setSection('image', e.currentTarget.open)}
-          >
-            <summary>
+          <details className="settings-group" open={sections.image}>
+            <summary onClick={toggleSection('image')}>
               <h2>Importer une image</h2>
             </summary>
             <section className="settings-section" id="image-import">
@@ -597,12 +598,8 @@ export default function App() {
               />
             </section>
           </details>
-          <details
-            className="settings-group"
-            open={sections.other}
-            onToggle={(e) => setSection('other', e.currentTarget.open)}
-          >
-            <summary>
+          <details className="settings-group" open={sections.other}>
+            <summary onClick={toggleSection('other')}>
               <h2>Autres réglages</h2>
             </summary>
             <section

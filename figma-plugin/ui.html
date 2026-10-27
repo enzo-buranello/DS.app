@@ -1,0 +1,89 @@
+<style>
+  body {
+    font:
+      12px/1.45 Inter,
+      system-ui,
+      sans-serif;
+    margin: 0;
+    padding: 14px;
+    color: var(--figma-color-text, #222);
+    background: var(--figma-color-bg, #fff);
+  }
+  h1 {
+    font-size: 14px;
+    margin: 0 0 8px;
+  }
+  #state {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-weight: 600;
+  }
+  #dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #b42318;
+  }
+  #state[data-on='true'] #dot {
+    background: #18734b;
+  }
+  p {
+    margin: 8px 0 0;
+    color: var(--figma-color-text-secondary, #666);
+  }
+</style>
+
+<h1>DS-Studio Bridge</h1>
+<div id="state" data-on="false">
+  <span id="dot"></span><span id="label">Connexion…</span>
+</div>
+<p id="detail">
+  Lancez DS-Studio sur cet ordinateur ; ce plugin s’y relie seul.
+</p>
+
+<script>
+  // Relais : WebSocket local (DS-Studio) ↔ code du plugin (API Figma).
+  const URL_DS = 'ws://localhost:3055';
+  const $ = (id) => document.getElementById(id);
+  let socket = null;
+  let delay = 1000;
+  const show = (on, label, detail) => {
+    $('state').dataset.on = String(on);
+    $('label').textContent = label;
+    $('detail').textContent = detail;
+  };
+  function connect() {
+    show(false, 'Connexion…', 'Recherche de DS-Studio sur ' + URL_DS + '.');
+    socket = new WebSocket(URL_DS);
+    socket.onopen = () => {
+      delay = 1000;
+      show(true, 'Connecté à DS-Studio', 'Laissez ce plugin ouvert.');
+    };
+    socket.onmessage = (event) => {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (e) {
+        return;
+      }
+      parent.postMessage({ pluginMessage: msg }, '*');
+    };
+    // Reconnexion automatique (DS-Studio relancé, veille…).
+    socket.onclose = () => {
+      show(
+        false,
+        'Déconnecté',
+        'Nouvelle tentative dans ' + delay / 1000 + ' s.',
+      );
+      setTimeout(connect, delay);
+      delay = Math.min(delay * 2, 5000);
+    };
+  }
+  onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (msg && socket && socket.readyState === WebSocket.OPEN)
+      socket.send(JSON.stringify(msg));
+  };
+  connect();
+</script>

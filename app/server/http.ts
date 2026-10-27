@@ -7,6 +7,8 @@ import { proposeSchema } from '../shared/model.js';
 import { Store, StudioError } from './store.js';
 import { ProjectStore } from './project.js';
 import { ComponentStore } from './components.js';
+import type { FigmaBridge } from './figmaBridge.js';
+import { figmaCommands } from '../shared/figmaProtocol.js';
 import { componentSchema } from '../shared/component.js';
 import {
   componentDraftSchema,
@@ -27,6 +29,7 @@ export async function createStudioServer(options: {
   store: Store;
   agent?: AgentAdapter;
   claude?: AgentAdapter;
+  figma?: FigmaBridge;
   dev?: boolean;
   control?: { record: RecordInfo; stop: () => void };
 }) {
@@ -121,6 +124,16 @@ export async function createStudioServer(options: {
           if (url.pathname === '/api/components')
             return send(200, await components.read());
           if (url.pathname === '/api/state') return send(200, store.snapshot());
+          if (url.pathname === '/api/figma/status')
+            return send(
+              200,
+              options.figma?.status ?? {
+                state: 'disconnected',
+                port: 0,
+                fileName: null,
+                error: 'Pont Figma non démarré.',
+              },
+            );
           if (url.pathname === '/api/export')
             return send(200, store.snapshot().tokens);
           throw new StudioError('Route inconnue.', 404);
@@ -165,6 +178,23 @@ export async function createStudioServer(options: {
         if (url.pathname === '/api/components/delete') {
           const b = z.object({ id: z.string().uuid() }).strict().parse(body);
           return send(200, await components.remove(b.id));
+        }
+        // Pont Figma : une commande du protocole, relayée au plugin ouvert.
+        if (url.pathname === '/api/figma/command') {
+          const b = z
+            .object({
+              command: z.enum(figmaCommands as [string, ...string[]]),
+              params: z.unknown().default({}),
+            })
+            .strict()
+            .parse(body);
+          if (!options.figma)
+            throw new StudioError('Pont Figma non démarré.', 503);
+          const result = await options.figma.request(
+            b.command as (typeof figmaCommands)[number],
+            b.params,
+          );
+          return send(200, { ok: true, result });
         }
         if (url.pathname === '/api/proposals') {
           const b = proposeSchema.parse(body);

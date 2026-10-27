@@ -13,6 +13,8 @@ const child = spawn(
       DS_STUDIO_DATA_DIR: dir,
       // Faux CLI Claude : réponses déterministes, aucun appel réseau.
       DS_CLAUDE_BIN: path.resolve('tests/fixtures/fake-claude.mjs'),
+      // Pont Figma de test : port distinct de l'app réelle (3055).
+      FIGMA_BRIDGE_PORT: '3056',
     },
     stdio: 'inherit',
   },

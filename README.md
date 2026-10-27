@@ -152,7 +152,7 @@ Inspirez-vous des deux skills fournis, sans copier vos identifiants ou vos conve
 | Import/export JSON local                                            | **TESTED**, API + navigateur                                                                       |
 | Chat Codex, JSON proposé avant acceptation                          | **TESTED**, CLI 0.164.0, compte enseignant disponible pendant la qualification ; quota non garanti |
 | Claude Code / Gemini dans l’application                             | **NOT IMPLEMENTED**, adaptateurs indisponibles et contrat documenté                                |
-| Figma                                                               | **NOT IMPLEMENTED**, intégration en cours de reconstruction (pont local)                           |
+| Pont local Figma Desktop (plugin + WebSocket)                       | **TESTED** avec un plugin simulé ; **non vérifié** dans Figma Desktop                              |
 | Skills et harness personnalisable                                   | **IMPLEMENTED**, structure et liens vérifiés ; pas une validation des choix d’un étudiant          |
 | Qualification automatisée Windows / macOS                           | **TESTED en CI** pour API, navigateur et contrôleur ; **PARTIAL** pour Finder/WSH natifs           |
 | Application desktop installable                                     | **NOT IMPLEMENTED**, application web locale uniquement                                             |
@@ -177,7 +177,8 @@ Détails et limites : [SECURITY](docs/SECURITY.md), [AGENTS](docs/AGENT_ADAPTERS
 
 ### Figma
 
-Intégration en cours de reconstruction : pont local entre l’app et Figma Desktop.
+Facultatif. Pont local entre l’app et Figma Desktop (plugin de développement, WebSocket
+sur 127.0.0.1:3055) : [docs/FIGMA.md](docs/FIGMA.md).
 
 ## Vérifier et développer
 

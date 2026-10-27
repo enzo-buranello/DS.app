@@ -255,6 +255,72 @@ small,
 .import-preview .control-row {
   grid-column: 1 / -1;
 }
+.figma-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 20px;
+}
+.figma-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b42318;
+  flex: none;
+}
+.figma-status[data-state='waiting'] .figma-dot {
+  background: #c27a0e;
+}
+.figma-status[data-state='connected'] .figma-dot {
+  background: #18734b;
+}
+.figma-test {
+  width: min(720px, 95vw);
+}
+.figma-test-state {
+  font-size: 12px;
+}
+.figma-test-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.3fr;
+  gap: 14px;
+  align-items: start;
+}
+.figma-test-grid section {
+  display: grid;
+  gap: 8px;
+}
+.figma-test-grid button {
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+.frame-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.figma-result {
+  margin-top: 14px;
+}
+.figma-result p {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.figma-result pre {
+  margin: 0;
+  max-height: 34vh;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f5f6f8;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .export-button {
   font-size: 12px;
   padding: 5px 10px;

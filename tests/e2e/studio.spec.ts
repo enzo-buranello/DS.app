@@ -924,3 +924,114 @@ test('importer une image : SVG déposé, capture collée, états d’erreur, ré
   const after = await (await page.request.get('/api/components')).json();
   expect(after.components).toHaveLength(components.length);
 });
+
+// Plugin Figma simulé : même protocole que figma-plugin (ui.html + code.js).
+function figmaPlugin(fileName: string) {
+  const nodes = new Map<string, Record<string, unknown>>([
+    [
+      '1:5',
+      {
+        id: '1:5',
+        type: 'TEXT',
+        name: 'Titre',
+        width: 120,
+        height: 24,
+        characters: 'Bonjour',
+      },
+    ],
+  ]);
+  let next = 100;
+  const commands: Record<string, (p: Record<string, unknown>) => unknown> = {
+    ping: () => ({ pong: true }),
+    get_document_info: () => ({
+      name: fileName,
+      pages: [{ id: '0:1', name: 'Composants' }],
+    }),
+    get_selection: () => [nodes.get('1:5')],
+    get_node: ({ id }) => {
+      const n = nodes.get(String(id));
+      if (!n) throw new Error(`Nœud introuvable : ${id}.`);
+      return n;
+    },
+    create_frame: (p) => {
+      const n = { id: `1:${++next}`, type: 'FRAME', ...p };
+      nodes.set(n.id, n);
+      return n;
+    },
+    set_text: ({ id, text }) => {
+      const n = nodes.get(String(id));
+      if (n?.type !== 'TEXT') throw new Error('Ce nœud n’est pas un texte.');
+      n.characters = text;
+      return n;
+    },
+    delete_node: ({ id }) => {
+      nodes.delete(String(id));
+      return { deleted: id };
+    },
+  };
+  const ws = new WebSocket('ws://127.0.0.1:3056');
+  ws.onmessage = (event) => {
+    const { id, command, params } = JSON.parse(String(event.data));
+    try {
+      ws.send(
+        JSON.stringify({ id, ok: true, result: commands[command](params) }),
+      );
+    } catch (e) {
+      ws.send(JSON.stringify({ id, ok: false, error: (e as Error).message }));
+    }
+  };
+  return new Promise<WebSocket>((resolve) => (ws.onopen = () => resolve(ws)));
+}
+
+test('pont Figma : état, chaque commande depuis le panneau de test, reconnexion', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const indicator = page
+    .getByRole('banner')
+    .getByRole('button', { name: /Figma :/ });
+  await expect(indicator).toContainText('Figma : en attente du plugin');
+  await indicator.click();
+  const panel = page.getByRole('dialog', { name: 'Pont Figma' });
+  await expect(panel).toContainText('En attente du plugin');
+  await expect(panel.getByRole('button', { name: 'ping' })).toBeDisabled();
+
+  const plugin = await figmaPlugin('Nosh');
+  await expect(indicator).toContainText('Figma : connecté · Nosh');
+  const result = panel.locator('.figma-result');
+  const run = async (name: string) => {
+    await panel.getByRole('button', { name, exact: true }).click();
+    await expect(result.getByRole('status')).toContainText(`${name} ·`);
+    return result.locator('pre');
+  };
+  await expect(await run('ping')).toContainText('"pong": true');
+  await expect(await run('get_document_info')).toContainText('"name": "Nosh"');
+  await expect(await run('get_selection')).toContainText('"id": "1:5"');
+  // L'id du nœud sélectionné alimente les commandes suivantes.
+  const nodeId = panel.getByLabel('ID du nœud');
+  await expect(nodeId).toHaveValue('1:5');
+  await panel.getByLabel('Nouveau texte').fill('Bonsoir');
+  await expect(await run('set_text')).toContainText('"characters": "Bonsoir"');
+  await expect(await run('get_node')).toContainText('"characters": "Bonsoir"');
+
+  await panel.getByLabel('Nom de la frame').fill('Carte test');
+  await expect(await run('create_frame')).toContainText('"name": "Carte test"');
+  const frameId = await nodeId.inputValue();
+  expect(frameId).toMatch(/^1:1\d\d$/);
+  await expect(await run('delete_node')).toContainText(
+    `"deleted": "${frameId}"`,
+  );
+  // Erreur du plugin : affichée telle quelle.
+  await run('get_node');
+  await expect(result.getByRole('status')).toContainText('get_node · erreur');
+  await expect(result.locator('pre')).toContainText('Figma : Nœud introuvable');
+
+  // Plugin fermé puis relancé : l'app suit sans rechargement.
+  plugin.close();
+  await expect(indicator).toContainText('Figma : en attente du plugin');
+  const again = await figmaPlugin('Nosh v2');
+  await expect(indicator).toContainText('Figma : connecté · Nosh v2');
+  await expect(await run('ping')).toContainText('"pong": true');
+  again.close();
+});
