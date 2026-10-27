@@ -14,7 +14,11 @@ import { ClaudeAdapter } from '../../connectors/agents/claude.js';
 import type { AgentAdapter } from '../../connectors/agents/types.js';
 import { figmaStatus } from '../../connectors/figma/contract.js';
 import { FigmaBridge } from './figma.js';
-import { importItems } from '../shared/figma.js';
+import {
+  exportSummarySchema,
+  importItems,
+  nativeExportSchema,
+} from '../shared/figma.js';
 import {
   componentListSchema,
   convertFigmaNode,
@@ -179,7 +183,11 @@ export async function createStudioServer(options: {
         for await (const chunk of req) {
           size += chunk.length;
           if (
-            size > (url.pathname === '/api/figma/screens' ? 3_000_000 : 128_000)
+            size >
+            (url.pathname === '/api/figma/screens' ||
+            url.pathname === '/api/figma/export'
+              ? 3_000_000
+              : 128_000)
           )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
@@ -237,6 +245,24 @@ export async function createStudioServer(options: {
               items.map((n) => convertFigmaNode(n, tokens, randomUUID(), file)),
             ),
           );
+        }
+        if (url.pathname === '/api/figma/export') {
+          const b = nativeExportSchema.parse(body);
+          // Les tokens écrits sont ceux du disque au moment de l'envoi.
+          const summary = exportSummarySchema.parse(
+            await figma.command(
+              'export',
+              { ...b, tokens: store.snapshot().tokens },
+              120_000,
+            ),
+          );
+          const key = figma.liveStatus.file?.key;
+          return send(200, {
+            ...summary,
+            link: key
+              ? `https://www.figma.com/design/${key}/?node-id=${encodeURIComponent(summary.pageId.replace(':', '-'))}`
+              : null,
+          });
         }
         if (url.pathname === '/api/figma/pair-reset') {
           await figma.resetPairing();

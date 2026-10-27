@@ -29,7 +29,11 @@ export const selectionSchema = z
     pageId: z.string().max(80),
   })
   .strict();
-type Command = { id: string; type: 'components' | 'import'; args: unknown };
+type Command = {
+  id: string;
+  type: 'components' | 'import' | 'export';
+  args: unknown;
+};
 
 // Pont local avec le plugin Figma « DS-Studio Bridge ».
 // - Le plugin s'authentifie par un code d'appairage affiché dans l'app (Bearer).
@@ -39,6 +43,8 @@ export class FigmaBridge {
   private dir: string;
   private token = '';
   private live: (LiveInfo & { seen: number }) | null = null;
+  // Dernier appel refusé : plugin lancé mais code d'appairage absent ou périmé.
+  private rejected = 0;
   private commands: Command[] = [];
   private waiting = new Map<
     string,
@@ -88,13 +94,20 @@ export class FigmaBridge {
     const connected = !!this.live && Date.now() - this.live.seen < LIVE_TIMEOUT;
     return {
       connected,
+      unpaired: !connected && Date.now() - this.rejected < LIVE_TIMEOUT,
       file: connected ? this.live!.file : null,
       pages: connected ? this.live!.pages : [],
     };
   }
   /** Transmet une commande au plugin ouvert et attend son résultat. */
   command(type: Command['type'], args: unknown, timeout = 60_000) {
-    if (!this.liveStatus.connected)
+    const status = this.liveStatus;
+    if (status.unpaired)
+      throw new StudioError(
+        'Plugin Figma lancé mais non connecté : collez le code d’appairage de DS-Studio dans le plugin.',
+        409,
+      );
+    if (!status.connected)
       throw new StudioError(
         'Plugin Figma non lancé. Ouvrez Figma Desktop puis Plugins > Development > DS-Studio Bridge.',
         409,
@@ -223,11 +236,13 @@ export class FigmaBridge {
       res.end();
       return;
     }
-    if (!this.authorized(req))
+    if (!this.authorized(req)) {
+      this.rejected = Date.now();
       throw new StudioError(
         'Code d’appairage invalide. Copiez le code affiché dans DS-Studio.',
         401,
       );
+    }
     const route = url.pathname.slice('/plugin/figma/'.length);
     if (req.method === 'GET' && route === 'ping')
       return send(200, { ok: true, app: 'DS-Studio' });

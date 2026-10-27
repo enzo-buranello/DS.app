@@ -39,7 +39,24 @@ secondes (« Lien direct actif ») avec le nom du fichier ouvert et ses pages.
 Seul le fichier ouvert dans Figma Desktop est accessible : aucun jeton, aucune
 liste des fichiers du compte. Une URL collée sert à vérifier la cible.
 
-## Exporter vers Figma
+## Exporter depuis DS-Studio (lien direct, natif)
+
+Bouton **↗ Exporter** (en-tête, et barre de la fenêtre d'aperçu) : choisissez
+la page cible (par défaut celle d'Import Figma), puis :
+
+- **Design system** : variables de la collection « DS-Studio », composants
+  (bouton, carte, formulaire, navigation, composants créés) et component sets
+  avec variantes, en auto-layout ; un bouton contenu dans la carte est une
+  instance du variant.
+- **Aperçu actuel** : l'écran à la largeur et au scénario affichés, en frames
+  auto-layout ; chaque composant DS reconnu devient une instance du composant
+  déjà exporté sur la page, ou d'un composant créé à cette occasion.
+
+Chaque élément créé porte un identifiant (pluginData `dsStudioKey`) : un
+ré-export met à jour les mêmes nœuds (les instances restent liées) au lieu de
+dupliquer. Les variables sont relues après écriture.
+
+## Exporter vers Figma (ancien flux, depuis le plugin)
 
 1. DS-Studio > Figma > **Préparer l'export Figma** (choisissez les largeurs).
 2. Plugin > **Prévisualiser** : liste des variables créées ou modifiées et

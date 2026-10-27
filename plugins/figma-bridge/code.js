@@ -269,10 +269,21 @@ async function buildText(node, tokens, vars) {
   return text;
 }
 
-async function build(node, tokens, vars) {
-  if (node.text && !node.children.length && !node.fill && !node.stroke)
+// ctx (export natif) : les composants DS marqués deviennent des instances.
+// target : nœud existant à remplir sur place (mise à jour d'un composant).
+async function build(node, tokens, vars, ctx, target) {
+  if (!target && ctx && node.component)
+    return instanceFor(node, tokens, vars, ctx);
+  if (
+    !target &&
+    node.text &&
+    !node.children.length &&
+    !node.fill &&
+    !node.stroke
+  )
     return buildText(node, tokens, vars);
-  const frame = figma.createFrame();
+  const frame = target || figma.createFrame();
+  if (target) for (const c of frame.children.slice()) c.remove();
   frame.name = node.name;
   frame.clipsContent = false;
   frame.resize(Math.max(1, node.w), Math.max(1, node.h));
@@ -281,7 +292,9 @@ async function build(node, tokens, vars) {
     frame.strokes = [makePaint(node.stroke, vars)];
     frame.strokeWeight = node.stroke.weight;
     frame.strokeAlign = 'INSIDE';
-  }
+  } else if (target) frame.strokes = [];
+  if (target && !node.radius) frame.cornerRadius = 0;
+  if (target && !node.layout) frame.layoutMode = 'NONE';
   if (node.radius) {
     frame.cornerRadius = node.radius;
     for (const corner of [
@@ -314,7 +327,7 @@ async function build(node, tokens, vars) {
       bind(frame, 'itemSpacing', auto.gapToken, auto.gap, tokens, vars);
   }
   for (const child of node.children) {
-    const c = await build(child, tokens, vars);
+    const c = await build(child, tokens, vars, ctx);
     frame.appendChild(c);
     if (auto) {
       // Taille mesurée dans le navigateur, conservée telle quelle.
@@ -576,7 +589,162 @@ async function runCommand(command) {
   if (command.type === 'components') return listComponents(command.args.pageId);
   if (command.type === 'import')
     return importComponents(command.args.pageId, command.args.ids);
+  if (command.type === 'export') return exportNative(command.args);
   throw new Error('Commande inconnue.');
+}
+
+// ---------- Export natif : composants, component sets, instances ----------
+const KEY = 'dsStudioKey';
+function findByKey(page, type, key) {
+  return page.findOne((n) => n.type === type && n.getPluginData(KEY) === key);
+}
+async function upsertComponent(def, tokens, vars, ctx) {
+  const root = Object.assign({}, def.root, { component: undefined });
+  let comp = findByKey(ctx.page, 'COMPONENT', def.key);
+  if (comp) ctx.updated++;
+  else {
+    comp = figma.createComponent();
+    comp.setPluginData(KEY, def.key);
+    ctx.page.appendChild(comp);
+    ctx.placed.push(comp);
+    ctx.created++;
+  }
+  // Mise à jour sur place : les instances déjà posées restent liées.
+  await build(root, tokens, vars, ctx, comp);
+  comp.name = def.variant || def.name;
+  ctx.components[def.key] = comp;
+  if (def.set) {
+    ctx.sets[def.set] = ctx.sets[def.set] || [];
+    if (!ctx.sets[def.set].includes(comp)) ctx.sets[def.set].push(comp);
+  }
+  return comp;
+}
+async function overrideTexts(instance, node) {
+  const want = [];
+  (function collect(n) {
+    if (n.text) want.push(n.text.characters);
+    n.children.forEach(collect);
+  })(node);
+  const have = instance.findAll((n) => n.type === 'TEXT');
+  if (have.length !== want.length) return;
+  for (let i = 0; i < have.length; i++) {
+    if (have[i].characters === want[i] || have[i].fontName === figma.mixed)
+      continue;
+    await figma.loadFontAsync(have[i].fontName);
+    have[i].characters = want[i];
+  }
+}
+async function instanceFor(node, tokens, vars, ctx) {
+  const ref = node.component;
+  // Composant déjà exporté (ce passage ou un précédent), sinon créé maintenant.
+  const comp =
+    ctx.components[ref.key] ||
+    findByKey(ctx.page, 'COMPONENT', ref.key) ||
+    (await upsertComponent(
+      Object.assign({}, ref, { root: node }),
+      tokens,
+      vars,
+      ctx,
+    ));
+  ctx.components[ref.key] = comp;
+  const instance = comp.createInstance();
+  instance.name = node.name;
+  await overrideTexts(instance, node);
+  if (
+    Math.abs(instance.width - node.w) > 1 ||
+    Math.abs(instance.height - node.h) > 1
+  )
+    instance.resize(Math.max(1, node.w), Math.max(1, node.h));
+  return instance;
+}
+function upsertSets(ctx) {
+  for (const name of Object.keys(ctx.sets)) {
+    const members = ctx.sets[name];
+    let set = findByKey(ctx.page, 'COMPONENT_SET', 'set:' + name);
+    if (!set) {
+      set = figma.combineAsVariants(members, ctx.page);
+      set.setPluginData(KEY, 'set:' + name);
+      ctx.placed.push(set);
+      ctx.created++;
+    } else {
+      for (const m of members) if (m.parent !== set) set.appendChild(m);
+    }
+    ctx.placed = ctx.placed.filter((n) => !members.includes(n));
+    set.name = name;
+    set.layoutMode = 'HORIZONTAL';
+    set.primaryAxisSizingMode = 'AUTO';
+    set.counterAxisSizingMode = 'AUTO';
+    set.itemSpacing = 16;
+    set.paddingTop =
+      set.paddingRight =
+      set.paddingBottom =
+      set.paddingLeft =
+        16;
+    ctx.setCount++;
+  }
+}
+// Les nouveaux éléments s'alignent à droite du contenu existant de la page.
+function place(page, nodes) {
+  let x =
+    page.children
+      .filter((n) => !nodes.includes(n))
+      .reduce((m, n) => Math.max(m, n.x + n.width), -200) + 200;
+  for (const n of nodes) {
+    n.x = x;
+    n.y = 0;
+    x += n.width + 120;
+  }
+}
+async function exportNative(data) {
+  const page = await pageById(data.pageId);
+  post({ type: 'progress', message: 'Export DS-Studio : variables…' });
+  const { byKey } = await applyVariables(data.tokens);
+  const ctx = {
+    page,
+    components: {},
+    sets: {},
+    placed: [],
+    created: 0,
+    updated: 0,
+    setCount: 0,
+  };
+  for (const def of data.definitions)
+    await upsertComponent(def, data.tokens, byKey, ctx);
+  for (const screen of data.screens) {
+    post({ type: 'progress', message: 'Écran ' + screen.name + '…' });
+    const key = 'screen:' + screen.key;
+    const old = findByKey(page, 'FRAME', key);
+    const frame = await build(screen.root, data.tokens, byKey, ctx);
+    frame.name = screen.name;
+    frame.clipsContent = true;
+    frame.setPluginData(KEY, key);
+    page.appendChild(frame);
+    if (old) {
+      frame.x = old.x;
+      frame.y = old.y;
+      old.remove();
+      ctx.updated++;
+    } else {
+      ctx.placed.push(frame);
+      ctx.created++;
+    }
+  }
+  upsertSets(ctx);
+  place(page, ctx.placed);
+  await figma.setCurrentPageAsync(page);
+  // Relecture : les variables écrites doivent correspondre aux tokens envoyés.
+  const check = await previewExport({ tokens: data.tokens, screens: [] });
+  return {
+    pageId: page.id,
+    pageName: page.name.slice(0, 200),
+    created: ctx.created,
+    updated: ctx.updated,
+    components: Object.keys(ctx.components).length,
+    sets: ctx.setCount,
+    screens: data.screens.length,
+    variables: Object.keys(byKey).length,
+    mismatched: check.rows.filter((r) => r.action !== '=').map((r) => r.name),
+  };
 }
 
 // ---------- Messages ----------

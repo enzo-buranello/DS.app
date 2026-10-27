@@ -1,5 +1,6 @@
 import type { TokenKey, Tokens } from '../shared/model.js';
 import type {
+  NativeExport,
   SceneFill,
   SceneNode,
   SceneScreen,
@@ -195,6 +196,19 @@ export class Serializer {
       h: rect.height,
       children: [],
     };
+    const component = el.getAttribute('data-ds-component');
+    if (component) {
+      const variant = el.getAttribute('data-ds-variant');
+      node.component = {
+        key:
+          el.getAttribute('data-ds-key') ??
+          (variant ? `${component}|${variant}` : component),
+        name: component,
+        set: variant ? component : null,
+        variant,
+      };
+      node.name = variant ?? component;
+    }
     const fill = this.fill(cs.backgroundColor, 'fill');
     if (fill) node.fill = fill;
     const bw = parseFloat(cs.borderTopWidth);
@@ -377,6 +391,57 @@ export async function captureScreen(
     node.w = width;
     node.h = Math.ceil(doc.documentElement.scrollHeight);
     return { name: node.name, width, root: node };
+  } finally {
+    frame.remove();
+  }
+}
+
+async function loadHidden(src: string, width: number, ready: string) {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${width}px;height:1200px;border:0;opacity:0;pointer-events:none`;
+  frame.src = src;
+  document.body.append(frame);
+  await new Promise<void>((resolve, reject) => {
+    frame.onload = () => resolve();
+    setTimeout(() => reject(new Error('Rendu trop long à charger.')), 15_000);
+  });
+  const doc = frame.contentDocument!;
+  const deadline = Date.now() + 10_000;
+  while (!doc.querySelector(ready)) {
+    if (Date.now() > deadline) {
+      frame.remove();
+      throw new Error('Rendu introuvable pour l’export.');
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await doc.fonts?.ready;
+  return { frame, doc };
+}
+
+/** Planche d'export : chaque composant DS isolé devient une définition Figma. */
+export async function captureDesignSystem(
+  tokens: Tokens,
+): Promise<NativeExport['definitions']> {
+  const { frame, doc } = await loadHidden('/?export=ds', 480, '.export-sheet');
+  try {
+    const serializer = new Serializer(tokens);
+    const definitions: NativeExport['definitions'] = [];
+    // Seuls les composants de premier niveau sont des définitions ; ceux qu'ils
+    // contiennent (bouton d'une carte) deviennent des instances.
+    for (const el of Array.from(
+      doc.querySelectorAll(
+        '.export-sheet > .export-item > [data-ds-component]',
+      ),
+    )) {
+      const node = serializer.walk(el, el.getBoundingClientRect());
+      if (!node?.component) continue;
+      node.x = 0;
+      node.y = 0;
+      const { key, name, set, variant } = node.component;
+      if (definitions.some((d) => d.key === key)) continue;
+      definitions.push({ key, name, set, variant, root: node });
+    }
+    return definitions;
   } finally {
     frame.remove();
   }

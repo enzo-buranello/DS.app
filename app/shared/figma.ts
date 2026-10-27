@@ -191,7 +191,15 @@ export interface SceneNode {
     counter: 'MIN' | 'CENTER' | 'MAX';
   };
   text?: SceneText;
+  // Composant DS reconnu dans le rendu : devient composant ou instance dans Figma.
+  component?: SceneComponent;
   children: SceneNode[];
+}
+export interface SceneComponent {
+  key: string;
+  name: string;
+  set: string | null;
+  variant: string | null;
 }
 export interface SceneScreen {
   name: string;
@@ -213,6 +221,14 @@ const fill = z
   .strict();
 const tokenKey = z.enum(tokenKeys as [TokenKey, ...TokenKey[]]);
 const coord = z.number().finite().min(-100_000).max(100_000);
+const componentRef = z
+  .object({
+    key: z.string().max(200),
+    name: z.string().max(200),
+    set: z.string().max(200).nullable(),
+    variant: z.string().max(400).nullable(),
+  })
+  .strict();
 export const sceneNodeSchema: z.ZodType<SceneNode> = z.lazy(() =>
   z
     .object({
@@ -252,10 +268,46 @@ export const sceneNodeSchema: z.ZodType<SceneNode> = z.lazy(() =>
         })
         .strict()
         .optional(),
+      component: componentRef.optional(),
       children: z.array(sceneNodeSchema).max(500),
     })
     .strict(),
 );
+// Export natif via le lien direct : définitions de composants et/ou écrans.
+export const nativeExportSchema = z
+  .object({
+    pageId: z.string().max(80),
+    kind: z.enum(['ds', 'preview']),
+    definitions: z
+      .array(componentRef.extend({ root: sceneNodeSchema }).strict())
+      .max(250),
+    screens: z
+      .array(
+        z
+          .object({
+            key: z.string().max(200),
+            name: z.string().max(200),
+            root: sceneNodeSchema,
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict();
+export type NativeExport = z.infer<typeof nativeExportSchema>;
+export const exportSummarySchema = z
+  .object({
+    pageId: z.string().max(80),
+    pageName: z.string().max(200),
+    created: z.number().int().min(0),
+    updated: z.number().int().min(0),
+    components: z.number().int().min(0),
+    sets: z.number().int().min(0),
+    screens: z.number().int().min(0),
+    variables: z.number().int().min(0),
+    mismatched: z.array(z.string().max(200)).max(200),
+  })
+  .strict();
 export const screensSchema = z
   .object({
     screens: z
