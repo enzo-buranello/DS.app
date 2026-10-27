@@ -52,6 +52,12 @@ export function useComponents(onError: (message: string) => void) {
     setSelectedId(component.id);
     void save(component);
   }
+  // Composant déjà construit ailleurs (import d'image) : ajouté puis sélectionné.
+  function add(component: DSComponent) {
+    setComponents((list) => [...list, component]);
+    setSelectedId(component.id);
+    return request('components/save', { component });
+  }
   function remove(id: string) {
     clearTimeout(timers.current.get(id));
     const rest = components.filter((c) => c.id !== id);
@@ -69,6 +75,7 @@ export function useComponents(onError: (message: string) => void) {
     create,
     remove,
     reload,
+    add,
   };
 }
 

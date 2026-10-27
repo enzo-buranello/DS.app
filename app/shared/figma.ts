@@ -324,3 +324,24 @@ export const screensSchema = z
       .max(12),
   })
   .strict();
+
+// Canal direct avec le plugin ouvert : il annonce le fichier et ses pages,
+// reçoit des commandes et renvoie les résultats. Seul le fichier ouvert est visible.
+export const liveInfoSchema = z
+  .object({
+    file: z
+      .object({
+        name: z.string().max(200),
+        key: z.string().max(64).nullable(),
+      })
+      .strict(),
+    pages: z
+      .array(
+        z
+          .object({ id: z.string().max(80), name: z.string().max(200) })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export type LiveInfo = z.infer<typeof liveInfoSchema>;

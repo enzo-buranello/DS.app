@@ -7,7 +7,13 @@ const child = spawn(
   process.execPath,
   ['--import', 'tsx', 'app/server/index.ts'],
   {
-    env: { ...process.env, PORT: '4318', DS_STUDIO_DATA_DIR: dir },
+    env: {
+      ...process.env,
+      PORT: '4318',
+      DS_STUDIO_DATA_DIR: dir,
+      // Faux CLI Claude : réponses déterministes, aucun appel réseau.
+      DS_CLAUDE_BIN: path.resolve('tests/fixtures/fake-claude.mjs'),
+    },
     stdio: 'inherit',
   },
 );

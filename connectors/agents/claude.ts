@@ -5,15 +5,23 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { agentReplySchema } from '../../app/shared/model.js';
 import { runCli } from './codex.js';
-import type { AgentAdapter, AgentContext } from './types.js';
+import type { AgentAdapter, AgentContext, VisionImage } from './types.js';
 
 // Profil sans outils : `--tools ""` retire tous les outils intégrés, aucune config MCP,
 // pas de slash commands, pas de session persistée, un seul tour. Lancé dans un dossier
 // temporaire vide : aucun CLAUDE.md ni réglage de projet chargé.
-export const claudeArgs = (system: string) => [
+export const claudeArgs = (system: string, vision = false) => [
   '-p',
-  '--output-format',
-  'json',
+  // Vision : l'image passe dans un message stream-json (sortie stream-json imposée).
+  ...(vision
+    ? [
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+        '--verbose',
+      ]
+    : ['--output-format', 'json']),
   '--tools',
   '',
   '--strict-mcp-config',
@@ -81,7 +89,8 @@ export class ClaudeAdapter implements AgentAdapter {
       };
     }
   }
-  async reply(message: string, context: AgentContext, signal?: AbortSignal) {
+  // Exécution isolée : dossier temporaire vide, environnement filtré, aucun outil.
+  private async run(args: string[], input: string, signal?: AbortSignal) {
     const status = await this.status();
     if (!status.available) throw new Error(status.detail);
     const cwd = await mkdtemp(path.join(tmpdir(), 'ds-studio-claude-'));
@@ -116,43 +125,95 @@ export class ClaudeAdapter implements AgentAdapter {
         .map((n) => [n, process.env[n]!]),
     );
     try {
-      let raw: string;
-      try {
-        raw = await runCli(
-          this.binary,
-          claudeArgs(system),
-          JSON.stringify({ context, message }),
-          { cwd, env },
-          signal,
-        );
-      } catch (e) {
-        throw rename(e);
-      }
-      let out: { is_error?: boolean; result?: string; num_turns?: number };
-      try {
-        out = JSON.parse(raw);
-      } catch {
-        throw new Error('Réponse CLI illisible. Aucune écriture appliquée.');
-      }
-      if (out.is_error || typeof out.result !== 'string')
-        throw new Error(
-          'Échec Claude. Vérifiez votre connexion et votre quota.',
-        );
-      if ((out.num_turns ?? 1) > 1)
-        throw new Error(
-          'Le CLI a utilisé un outil inattendu. Intégration refusée.',
-        );
-      const text = out.result
-        .trim()
-        .replace(/^```(?:json)?\s*/, '')
-        .replace(/\s*```$/, '');
-      try {
-        return agentReplySchema.parse(JSON.parse(text));
-      } catch {
-        throw new Error('Réponse CLI hors format. Aucune écriture appliquée.');
-      }
+      return await runCli(this.binary, args, input, { cwd, env }, signal);
+    } catch (e) {
+      throw rename(e);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  }
+  private static result(out: {
+    is_error?: boolean;
+    result?: string;
+    num_turns?: number;
+  }) {
+    if (out.is_error || typeof out.result !== 'string')
+      throw new Error('Échec Claude. Vérifiez votre connexion et votre quota.');
+    if ((out.num_turns ?? 1) > 1)
+      throw new Error(
+        'Le CLI a utilisé un outil inattendu. Intégration refusée.',
+      );
+    return out.result
+      .trim()
+      .replace(/^```(?:json)?\s*/, '')
+      .replace(/\s*```$/, '');
+  }
+  async reply(message: string, context: AgentContext, signal?: AbortSignal) {
+    const raw = await this.run(
+      claudeArgs(system),
+      JSON.stringify({ context, message }),
+      signal,
+    );
+    let out: { is_error?: boolean; result?: string; num_turns?: number };
+    try {
+      out = JSON.parse(raw);
+    } catch {
+      throw new Error('Réponse CLI illisible. Aucune écriture appliquée.');
+    }
+    const text = ClaudeAdapter.result(out);
+    try {
+      return agentReplySchema.parse(JSON.parse(text));
+    } catch {
+      throw new Error('Réponse CLI hors format. Aucune écriture appliquée.');
+    }
+  }
+  /** Envoie une image et renvoie le JSON produit par Claude, non validé : à l'appelant de le valider. */
+  async describeImage(
+    image: VisionImage,
+    instructions: string,
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const message = {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.mediaType,
+              data: image.data,
+            },
+          },
+          { type: 'text', text: prompt },
+        ],
+      },
+    };
+    const raw = await this.run(
+      claudeArgs(instructions, true),
+      JSON.stringify(message) + '\n',
+      signal,
+    );
+    // stream-json : une ligne JSON par évènement, la dernière « result » fait foi.
+    const final = raw
+      .split('\n')
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((e) => e && e.type === 'result')
+      .at(-1);
+    if (!final) throw new Error('Réponse CLI illisible. Aucune création.');
+    const text = ClaudeAdapter.result(final);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Réponse de Claude invalide : JSON attendu.');
     }
   }
 }

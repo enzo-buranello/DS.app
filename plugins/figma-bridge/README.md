@@ -25,20 +25,6 @@ payant : le plugin tourne dans Figma Desktop et parle uniquement à
 Limites du schéma v1 : polices limitées à system-ui, Arial, Georgia, Verdana ;
 dimensions entre 0 et 128 px ; seuls les 18 tokens existants sont modifiables.
 
-## Importer des composants depuis DS-Studio (lien direct)
-
-Tant que le plugin est ouvert et appairé, il s'annonce à DS-Studio toutes les
-secondes (« Lien direct actif ») avec le nom du fichier ouvert et ses pages.
-
-1. DS-Studio > Paramètres > **Import Figma** : choisissez la page.
-2. Cochez les composants ou component sets, puis **Importer**.
-3. Chaque variante devient un composant DS-Studio rattaché à son set ; les
-   couleurs, rayons, espacements et tailles de texte sont liés aux tokens quand
-   la variable ou la valeur correspond. Un ré-import met à jour sans dupliquer.
-
-Seul le fichier ouvert dans Figma Desktop est accessible : aucun jeton, aucune
-liste des fichiers du compte. Une URL collée sert à vérifier la cible.
-
 ## Exporter depuis DS-Studio (lien direct, natif)
 
 Bouton **↗ Exporter** (en-tête, et barre de la fenêtre d'aperçu) : choisissez

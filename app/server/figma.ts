@@ -6,12 +6,13 @@ import { atomicWrite, readPrivate } from './files.js';
 import { StudioError } from './store.js';
 import {
   figmaImportSchema,
+  liveInfoSchema,
+  type LiveInfo,
   screensSchema,
   type FigmaExport,
   type StoredImport,
 } from '../shared/figma.js';
 import type { Tokens } from '../shared/model.js';
-import { liveInfoSchema, type LiveInfo } from '../shared/figmaComponents.js';
 import { z } from 'zod';
 
 const LIVE_TIMEOUT = 5_000;
@@ -31,7 +32,7 @@ export const selectionSchema = z
   .strict();
 type Command = {
   id: string;
-  type: 'components' | 'import' | 'export';
+  type: 'export';
   args: unknown;
 };
 

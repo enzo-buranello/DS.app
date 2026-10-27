@@ -1,4 +1,10 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  createElement,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
+import type { Vector, VectorNode } from '../shared/vector.js';
 import { tokenCss, type Tokens } from '../shared/model.js';
 import { componentCss, type DSComponent } from '../shared/component.js';
 
@@ -139,6 +145,34 @@ export function Navigation() {
     </nav>
   );
 }
+// Calque vectoriel : arbre validé rendu élément par élément, jamais en HTML brut.
+const camel = (name: string) =>
+  name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+function vectorElement(node: VectorNode, key: number): ReactNode {
+  return createElement(
+    node.tag,
+    {
+      key,
+      ...Object.fromEntries(
+        Object.entries(node.attrs).map(([k, v]) => [camel(k), v]),
+      ),
+    },
+    node.children.map(vectorElement),
+  );
+}
+export function VectorView({ vector }: { vector: Vector }) {
+  return (
+    <svg
+      viewBox={vector.viewBox}
+      width={vector.width}
+      height={vector.height}
+      aria-hidden="true"
+      style={{ flex: 'none' }}
+    >
+      {vector.nodes.map(vectorElement)}
+    </svg>
+  );
+}
 // Composant créé à la main : le style vient du modèle, les tokens restent des var().
 export function ComponentView({ component }: { component: DSComponent }) {
   return (
@@ -155,6 +189,7 @@ export function ComponentView({ component }: { component: DSComponent }) {
         `custom:${component.id}`,
       )}
     >
+      {component.vector && <VectorView vector={component.vector} />}
       {component.icon && <span aria-hidden="true">{component.icon}</span>}
       <span>{component.label}</span>
     </div>

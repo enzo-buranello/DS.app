@@ -7,6 +7,14 @@ import { proposeSchema } from '../shared/model.js';
 import { Store, StudioError } from './store.js';
 import { ProjectStore } from './project.js';
 import { ComponentStore } from './components.js';
+import { componentSchema } from '../shared/component.js';
+import {
+  componentDraftSchema,
+  draftToComponent,
+  IMAGE_MEDIA_TYPES,
+  MAX_IMAGE_BYTES,
+  visionInstructions,
+} from '../shared/componentDraft.js';
 import { projectSchema } from '../shared/project.js';
 import { CodexAdapter } from '../../connectors/agents/codex.js';
 import { unvalidatedAdapter } from '../../connectors/agents/unvalidated.js';
@@ -19,11 +27,6 @@ import {
   importItems,
   nativeExportSchema,
 } from '../shared/figma.js';
-import {
-  componentListSchema,
-  convertFigmaNode,
-  figmaImportItemsSchema,
-} from '../shared/figmaComponents.js';
 import type { RecordInfo } from '../../scripts/runtime.mjs';
 
 export async function createStudioServer(options: {
@@ -184,10 +187,12 @@ export async function createStudioServer(options: {
           size += chunk.length;
           if (
             size >
-            (url.pathname === '/api/figma/screens' ||
-            url.pathname === '/api/figma/export'
-              ? 3_000_000
-              : 128_000)
+            (url.pathname === '/api/import/image'
+              ? 6_000_000
+              : url.pathname === '/api/figma/screens' ||
+                  url.pathname === '/api/figma/export'
+                ? 3_000_000
+                : 128_000)
           )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
@@ -216,36 +221,6 @@ export async function createStudioServer(options: {
         }
         if (url.pathname === '/api/figma/selection')
           return send(200, await figma.saveSelection(body));
-        if (url.pathname === '/api/figma/components') {
-          const b = z
-            .object({ pageId: z.string().max(80) })
-            .strict()
-            .parse(body);
-          return send(
-            200,
-            componentListSchema.parse(await figma.command('components', b)),
-          );
-        }
-        if (url.pathname === '/api/figma/import-components') {
-          const b = z
-            .object({
-              pageId: z.string().max(80),
-              ids: z.array(z.string().max(80)).min(1).max(100),
-            })
-            .strict()
-            .parse(body);
-          const { items } = figmaImportItemsSchema.parse(
-            await figma.command('import', b),
-          );
-          const file = figma.liveStatus.file ?? { key: null, name: '' };
-          const tokens = store.snapshot().tokens;
-          return send(
-            200,
-            await components.upsertBySource(
-              items.map((n) => convertFigmaNode(n, tokens, randomUUID(), file)),
-            ),
-          );
-        }
         if (url.pathname === '/api/figma/export') {
           const b = nativeExportSchema.parse(body);
           // Les tokens écrits sont ceux du disque au moment de l'envoi.
@@ -304,6 +279,72 @@ export async function createStudioServer(options: {
         if (url.pathname === '/api/commit') {
           const b = z.object({ id: z.string().uuid() }).strict().parse(body);
           return send(200, await store.commit(b.id));
+        }
+        if (url.pathname === '/api/import/image') {
+          const b = z
+            .object({
+              mediaType: z.enum(IMAGE_MEDIA_TYPES),
+              data: z
+                .string()
+                .max(5_800_000)
+                .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+            })
+            .strict()
+            .parse(body);
+          const bytes = Buffer.from(b.data, 'base64');
+          if (bytes.length > MAX_IMAGE_BYTES)
+            throw new StudioError('Image trop lourde (4 Mo maximum).', 413);
+          // Signature réelle du fichier, indépendante du type annoncé.
+          const signature =
+            b.mediaType === 'image/png'
+              ? bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+              : b.mediaType === 'image/jpeg'
+                ? bytes.subarray(0, 3).toString('hex') === 'ffd8ff'
+                : bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+                  bytes.subarray(8, 12).toString('latin1') === 'WEBP';
+          if (!signature)
+            throw new StudioError(
+              'Format non supporté : PNG, JPG, WebP ou SVG attendu.',
+              415,
+            );
+          const claude = adapters.claude;
+          if (!claude.describeImage)
+            throw new StudioError('Analyse d’image indisponible.', 501);
+          if (busy)
+            throw new StudioError('Une demande IA est déjà en cours.', 429);
+          busy = true;
+          const controller = new AbortController();
+          active.add(controller);
+          const cancel = () => controller.abort();
+          res.once('close', cancel);
+          try {
+            const tokens = store.snapshot().tokens;
+            const raw = await claude.describeImage(
+              { mediaType: b.mediaType, data: b.data },
+              visionInstructions(tokens),
+              'Décris ce composant selon le schéma.',
+              controller.signal,
+            );
+            const draft = componentDraftSchema.safeParse(raw);
+            if (!draft.success)
+              throw new StudioError(
+                'Réponse de Claude invalide : ' +
+                  draft.error.issues
+                    .slice(0, 3)
+                    .map((i) => `${i.path.join('.') || 'racine'} ${i.message}`)
+                    .join(' ; ') +
+                  '. Réessayez.',
+                422,
+              );
+            const component = componentSchema.parse(
+              draftToComponent(draft.data, tokens, randomUUID()),
+            );
+            return send(200, { draft: draft.data, component });
+          } finally {
+            busy = false;
+            active.delete(controller);
+            res.off('close', cancel);
+          }
         }
         if (url.pathname === '/api/agent') {
           const b = z
@@ -454,7 +495,7 @@ function urlSafeMessage(error: unknown) {
   // Les erreurs agent sont rédigées dans l'adaptateur, jamais de stderr brut ni de stack.
   const message = (error as Error).message ?? '';
   if (
-    /^(CLI |Codex |Version non|Échec Codex|Délai CLI|Demande interrompue|Le CLI|Réponse CLI|Claude |Échec Claude|claude non|gemini non|Impossible de démarrer)/.test(
+    /^(CLI |Codex |Version non|Échec Codex|Délai CLI|Demande interrompue|Le CLI|Réponse CLI|Réponse de Claude|Claude |Échec Claude|claude non|gemini non|Impossible de démarrer)/.test(
       message,
     )
   )

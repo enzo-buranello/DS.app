@@ -696,10 +696,10 @@ test('créer un composant : chaque réglage en direct, lien aux tokens, persista
     fill: { token: 'color.brand' },
     layout: { gap: { token: 'space.lg' }, padding: { left: { px: 40 } } },
   });
-  await page.getByText('Import Figma', { exact: true }).click();
-  await expect(page.locator('#figma-import')).toBeHidden();
+  await page.getByText('Importer une image', { exact: true }).click();
+  await expect(page.locator('#image-import')).toBeHidden();
   await page.reload();
-  await expect(page.locator('#figma-import')).toBeHidden();
+  await expect(page.locator('#image-import')).toBeHidden();
   await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
     'Bouton test',
   );
@@ -708,56 +708,6 @@ test('créer un composant : chaque réglage en direct, lien aux tokens, persista
 });
 
 // Plugin simulé : mêmes routes et même code d'appairage que le vrai plugin.
-const PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-function figmaNode(
-  nodeId: string,
-  name: string,
-  set: null | { id: string; name: string },
-  properties: Record<string, string>,
-  characters: string,
-) {
-  return {
-    nodeId,
-    name,
-    set,
-    properties,
-    fill: { hex: '#18734B', opacity: 1, variable: null },
-    stroke: null,
-    strokeWeight: 0,
-    dash: 'solid',
-    radii: [10, 10, 10, 10],
-    radiusVariables: [null, null, null, null],
-    layout: {
-      direction: 'HORIZONTAL',
-      gap: 8,
-      gapVariable: null,
-      padding: [8, 16, 8, 16],
-      paddingVariables: [null, null, null, null],
-      primary: 'CENTER',
-      counter: 'CENTER',
-      sizingH: 'HUG',
-      sizingV: 'HUG',
-    },
-    width: 120,
-    height: 44,
-    minWidth: null,
-    maxWidth: null,
-    minHeight: null,
-    maxHeight: null,
-    shadow: null,
-    blur: 0,
-    text: {
-      characters,
-      fontFamily: 'Inter',
-      fontWeight: 600,
-      fontSize: 16,
-      fontSizeVariable: null,
-      lineHeight: { unit: 'AUTO' },
-      color: { hex: '#FFFFFF', opacity: 1, variable: null },
-    },
-  };
-}
 async function fakePlugin(page: Page) {
   const { pairCode } = await (await page.request.get('/api/figma')).json();
   const headers = { Authorization: `Bearer ${pairCode}` };
@@ -768,14 +718,12 @@ async function fakePlugin(page: Page) {
       { id: 'p2', name: 'Vide' },
     ],
   };
-  const set = { id: '1:1', name: 'Bouton' };
   const exports: Record<string, any>[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
   const missing = new Set<string>();
   const run = (cmd: {
     type: string;
     args: {
       pageId: string;
-      ids?: string[];
       kind?: string;
       definitions?: unknown[];
       screens?: unknown[];
@@ -805,41 +753,7 @@ async function fakePlugin(page: Page) {
         mismatched: [],
       };
     }
-    if (cmd.type === 'components')
-      return {
-        items:
-          cmd.args.pageId === 'p2'
-            ? []
-            : [
-                {
-                  id: '1:1',
-                  name: 'Bouton',
-                  type: 'COMPONENT_SET',
-                  variants: 2,
-                  thumbnail: PNG,
-                },
-                {
-                  id: '2:1',
-                  name: 'Badge',
-                  type: 'COMPONENT',
-                  variants: 1,
-                  thumbnail: null,
-                },
-              ],
-      };
-    return {
-      items: [
-        ...(cmd.args.ids!.includes('1:1')
-          ? [
-              figmaNode('1:2', 'Taille=S', set, { Taille: 'S' }, 'Petit'),
-              figmaNode('1:3', 'Taille=L', set, { Taille: 'L' }, 'Grand'),
-            ]
-          : []),
-        ...(cmd.args.ids!.includes('2:1')
-          ? [figmaNode('2:1', 'Badge', null, {}, 'Nouveau')]
-          : []),
-      ],
-    };
+    throw new Error('Commande inconnue.');
   };
   let running = true;
   const loop = (async () => {
@@ -874,115 +788,6 @@ async function fakePlugin(page: Page) {
     },
   };
 }
-
-test('import Figma : états, pages, sélection multiple, variantes, ré-import et mémoire', async ({
-  page,
-}) => {
-  test.setTimeout(60_000);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
-  const section = page.locator('#figma-import');
-  await expect(section.getByText('Figma non connecté.')).toBeVisible();
-  await section.getByRole('button', { name: 'Connecter Figma' }).click();
-  const { pairCode } = await (await page.request.get('/api/figma')).json();
-  await expect(section.locator('.pair-code')).toHaveText(pairCode);
-
-  const plugin = await fakePlugin(page);
-  const fileSelect = section.getByRole('combobox', { name: 'Fichier Figma' });
-  await expect(fileSelect).toContainText('Kit UI');
-  const pageSelect = section.getByRole('combobox', { name: 'Page' });
-
-  // Page vide puis page avec composants (miniature + nombre de variantes).
-  await pageSelect.selectOption('p2');
-  await expect(
-    section.getByText('Aucun composant sur cette page.'),
-  ).toBeVisible();
-  await pageSelect.selectOption('p1');
-  const list = section.getByRole('list', { name: 'Composants de la page' });
-  await expect(list.getByRole('listitem')).toHaveCount(2);
-  await expect(list).toContainText('2 variante(s)');
-  await expect(list.locator('img')).toHaveCount(1);
-
-  // URL d'un autre fichier : message clair, import bloqué.
-  const url = section.getByLabel('Ou coller l’URL du fichier');
-  await url.fill('https://www.figma.com/design/ZzZzZzZzZz99/Autre');
-  await expect(section.getByRole('alert')).toContainText(
-    'ne correspond pas au fichier ouvert',
-  );
-  await url.fill('https://www.figma.com/design/AbCdEf123456/Kit-UI');
-  await url.blur();
-  await expect(section.getByRole('alert')).toHaveCount(0);
-
-  const importButton = section.getByRole('button', { name: /^Importer/ });
-  await expect(importButton).toBeDisabled();
-  await list.getByLabel(/Bouton/).check();
-  await list.getByLabel(/Badge/).check();
-  await importButton.click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Import Figma' }),
-  ).toContainText('3 composant(s) créé(s), 0 mis à jour');
-  const stage = page.locator('.stage-catalogue');
-  await expect(
-    stage.getByRole('button', { name: 'Sélectionner Bouton · Taille=S' }),
-  ).toBeVisible();
-  await expect(
-    stage.getByRole('button', { name: 'Sélectionner Bouton · Taille=L' }),
-  ).toBeVisible();
-  await expect(
-    stage.getByRole('button', { name: 'Sélectionner Badge' }),
-  ).toContainText('Nouveau');
-  const { components } = await (
-    await page.request.get('/api/components')
-  ).json();
-  const imported = components.filter((c: { source: unknown }) => c.source);
-  expect(imported).toHaveLength(3);
-  // Couleur égale à color.success → liée au token ; rayon 10 → radius.control.
-  expect(imported[0].fill).toEqual({ token: 'color.success', opacity: 1 });
-  expect(imported[0].radius.topLeft).toEqual({ token: 'radius.control' });
-  expect(imported[0].set).toEqual({
-    id: '1:1',
-    name: 'Bouton',
-    properties: { Taille: 'S' },
-  });
-
-  // Ré-import : mise à jour, aucun doublon.
-  await list.getByLabel(/Bouton/).check();
-  await list.getByLabel(/Badge/).check();
-  await importButton.click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Import Figma' }),
-  ).toContainText('0 composant(s) créé(s), 3 mis à jour');
-  const after = await (await page.request.get('/api/components')).json();
-  expect(
-    after.components.filter((c: { source: unknown }) => c.source),
-  ).toHaveLength(3);
-
-  // Fichier et page mémorisés après rechargement.
-  await page.reload();
-  await expect(section.getByRole('combobox', { name: 'Page' })).toHaveValue(
-    'p1',
-  );
-  await expect(section.getByLabel('Ou coller l’URL du fichier')).toHaveValue(
-    'https://www.figma.com/design/AbCdEf123456/Kit-UI',
-  );
-
-  // Erreur côté plugin : page absente du fichier → message clair.
-  const r = await page.request.post('/api/figma/components', {
-    headers: {
-      'x-ds-studio': (await (await page.request.get('/api/bootstrap')).json())
-        .csrf,
-    },
-    data: { pageId: 'p404' },
-  });
-  expect(r.status()).toBe(502);
-  expect((await r.json()).error).toContain('Figma : Page introuvable');
-
-  // Plugin fermé : retour à l'état « non connecté ».
-  await plugin.stop();
-  await expect(section.getByText('Figma non connecté.')).toBeVisible({
-    timeout: 10_000,
-  });
-});
 
 test('réglages d’aperçu : dans la fenêtre d’aperçu seulement, repliables, état conservé', async ({
   page,
@@ -1133,4 +938,169 @@ test('export Figma : états, Design system, aperçu actuel, page modifiable, ré
     'Figma : Page introuvable',
   );
   await plugin.stop();
+});
+
+const BUTTON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48" viewBox="0 0 160 48">
+  <script>alert(1)</script>
+  <rect x="0" y="0" width="160" height="48" rx="10" fill="#3154C4"/>
+  <path d="M20 24h16m-6-6 6 6-6 6" stroke="#FFFFFF" stroke-width="2" fill="none" onclick="alert(2)"/>
+  <text x="48" y="30" font-size="16" font-weight="600" fill="#FFFFFF" font-family="Arial">Envoyer</text>
+</svg>`;
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test('importer une image : SVG déposé, capture collée, états d’erreur, résultat modifiable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Serveur partagé entre tests : tokens utilisés ici remis à leur valeur d'origine
+  // (par le diff et la validation habituels).
+  const state = await (await page.request.get('/api/state')).json();
+  const seed: Record<string, string | number> = {
+    'color.brand': '#3154C4',
+    'color.onBrand': '#FFFFFF',
+    'space.sm': 8,
+    'space.md': 16,
+    'radius.control': 10,
+  };
+  const changes = Object.entries(seed)
+    .filter(([k, v]) => state.tokens[k].$value !== v)
+    .map(([key, value]) => ({ key, value }));
+  if (changes.length) {
+    const csrf = (await (await page.request.get('/api/bootstrap')).json()).csrf;
+    const headers = { 'x-ds-studio': csrf };
+    const proposal = await (
+      await page.request.post('/api/proposals', {
+        headers,
+        data: { revision: state.revision, changes },
+      })
+    ).json();
+    await page.request.post('/api/commit', {
+      headers,
+      data: { id: proposal.id },
+    });
+  }
+  await page.goto('/');
+  const section = page.locator('#image-import');
+  const picker = section.getByLabel('Choisir une image');
+  const alert = section.getByRole('alert');
+
+  // Format non supporté, puis image trop lourde : refus immédiat.
+  await picker.setInputFiles({
+    name: 'anim.gif',
+    mimeType: 'image/gif',
+    buffer: Buffer.from('GIF89a'),
+  });
+  await expect(alert).toContainText('Format non supporté');
+  const heavy = Buffer.alloc(4 * 1024 * 1024 + 1);
+  PNG_1PX.copy(heavy);
+  await picker.setInputFiles({
+    name: 'lourde.png',
+    mimeType: 'image/png',
+    buffer: heavy,
+  });
+  await expect(alert).toContainText('trop lourde');
+
+  // SVG déposé : conversion directe, sans IA ; script et attributs on* écartés.
+  await section.locator('.dropzone').evaluate((zone, svg) => {
+    const data = new DataTransfer();
+    data.items.add(
+      new File([svg], 'bouton-envoyer.svg', { type: 'image/svg+xml' }),
+    );
+    zone.dispatchEvent(
+      new DragEvent('drop', { dataTransfer: data, bubbles: true }),
+    );
+  }, BUTTON_SVG);
+  const preview = section.getByRole('region', { name: 'Aperçu de l’import' });
+  const source = preview.getByRole('img', { name: /bouton-envoyer\.svg/ });
+  // L'image source est réellement décodée (pas bloquée par la CSP).
+  await expect
+    .poll(() => source.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  const result = preview.locator('.ds-custom');
+  await expect(result).toContainText('Envoyer');
+  await expect(result).toHaveCSS('background-color', 'rgb(49, 84, 196)');
+  await expect(result.locator('svg path')).toHaveCount(1);
+  expect(await result.locator('svg').innerHTML()).not.toMatch(/script|onclick/);
+  await preview.getByRole('button', { name: 'Créer' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'créé' }),
+  ).toContainText('bouton-envoyer');
+  await expect(preview).toBeHidden();
+  const created = page
+    .locator('.stage-catalogue')
+    .getByRole('button', { name: 'Sélectionner bouton-envoyer' });
+  await expect(created).toHaveAttribute('aria-pressed', 'true');
+  // Modifiable avec la section 1 : fond lié au token, icône qui suit la couleur du texte.
+  await expect(
+    page.getByRole('combobox', { name: 'Fill', exact: true }),
+  ).toHaveValue('color.brand');
+  await page
+    .getByRole('combobox', { name: 'Fill', exact: true })
+    .selectOption('color.danger');
+  await page
+    .getByRole('combobox', { name: 'Texte (couleur)', exact: true })
+    .selectOption('color.text');
+  const view = created.locator('.ds-custom');
+  await expect(view).toHaveCSS('background-color', 'rgb(180, 35, 62)');
+  await expect(view.locator('svg path')).toHaveCSS('stroke', 'rgb(25, 36, 61)');
+
+  // Capture collée (Cmd+V) : analyse par Claude (CLI simulé), rapprochée des tokens.
+  await page.evaluate(
+    (bytes) => {
+      const data = new DataTransfer();
+      data.items.add(
+        new File([new Uint8Array(bytes)], 'capture.png', { type: 'image/png' }),
+      );
+      window.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data }),
+      );
+    },
+    [...PNG_1PX],
+  );
+  await expect(preview.locator('.ds-custom')).toContainText('Valider');
+  await expect(preview.locator('.ds-custom')).toHaveCSS(
+    'background-color',
+    'rgb(49, 84, 196)',
+  );
+  await preview.getByRole('button', { name: 'Réessayer' }).click();
+  await expect(preview.locator('.ds-custom')).toContainText('Valider');
+  await preview.getByRole('button', { name: 'Créer' }).click();
+  await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
+    'Bouton capturé',
+  );
+  // Sauvegarde différée de la section 1 : on attend qu'elle soit sur disque.
+  await expect
+    .poll(async () => {
+      const r = await (await page.request.get('/api/components')).json();
+      return r.components.find(
+        (c: { name: string }) => c.name === 'bouton-envoyer',
+      )?.fill.token;
+    })
+    .toBe('color.danger');
+  const { components } = await (
+    await page.request.get('/api/components')
+  ).json();
+  const svg = components.find(
+    (c: { name: string }) => c.name === 'bouton-envoyer',
+  );
+  const shot = components.find(
+    (c: { name: string }) => c.name === 'Bouton capturé',
+  );
+  expect(svg.vector.nodes[0].tag).toBe('path');
+  expect(svg.fill).toEqual({ token: 'color.danger', opacity: 1 });
+  expect(shot.fill).toEqual({ token: 'color.brand', opacity: 1 });
+  expect(shot.layout.padding.left).toEqual({ token: 'space.md' });
+
+  // Réponse de Claude hors format : message clair, rien de créé.
+  await picker.setInputFiles({
+    name: 'capture.webp',
+    mimeType: 'image/webp',
+    buffer: Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'),
+  });
+  await expect(alert).toContainText('Réponse de Claude invalide');
+  const after = await (await page.request.get('/api/components')).json();
+  expect(after.components).toHaveLength(components.length);
 });

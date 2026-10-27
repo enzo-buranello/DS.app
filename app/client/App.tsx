@@ -13,8 +13,8 @@ import type { DSComponent } from '../shared/component.js';
 import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
 import FigmaPanel from './FigmaPanel.js';
-import FigmaImport from './FigmaImport.js';
 import FigmaExportButton from './FigmaExportButton.js';
+import ImageImport from './ImageImport.js';
 import { useTokenDraft } from './useTokenDraft.js';
 import { bootstrap, commit, getState, request, type Bootstrap } from './api.js';
 import {
@@ -36,10 +36,10 @@ const CATALOGUE_WIDTH = 960;
 const PROMPT_MAX_LINES = 4;
 // Préférence d'affichage seulement : perdue sans conséquence si le stockage est refusé.
 const SECTIONS_KEY = 'ds-studio-settings-sections-v1';
-type SectionId = 'create' | 'figma' | 'other';
+type SectionId = 'create' | 'image' | 'other';
 function useSections() {
   const [open, setOpen] = useState<Record<SectionId, boolean>>(() => {
-    const fallback = { create: true, figma: true, other: true };
+    const fallback = { create: true, image: true, other: true };
     try {
       return {
         ...fallback,
@@ -657,18 +657,19 @@ export default function App() {
           </details>
           <details
             className="settings-group"
-            open={sections.figma}
-            onToggle={(e) => setSection('figma', e.currentTarget.open)}
+            open={sections.image}
+            onToggle={(e) => setSection('image', e.currentTarget.open)}
           >
             <summary>
-              <h2>Import Figma</h2>
+              <h2>Importer une image</h2>
             </summary>
-            <section className="settings-section" id="figma-import">
-              <FigmaImport
-                onImported={(summary) => {
-                  void custom.reload();
-                  setNotice(summary);
+            <section className="settings-section" id="image-import">
+              <ImageImport
+                tokens={state.tokens}
+                onCreate={async (component) => {
+                  await custom.add(component);
                   setView('ds');
+                  setNotice(`Composant « ${component.name} » créé.`);
                 }}
               />
             </section>

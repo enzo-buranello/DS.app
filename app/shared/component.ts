@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { tokenKeys, type TokenKey } from './model.js';
+import { vectorSchema } from './vector.js';
 
 // Composants créés à la main. Une valeur liée garde la référence du token :
 // le rendu passe par var(--token), jamais par une copie de sa valeur.
@@ -123,6 +124,8 @@ export const componentSchema = z
       .strict()
       .nullable()
       .default(null),
+    // Calque vectoriel (SVG importé) : arbre validé, jamais de balisage brut.
+    vector: vectorSchema.nullable().default(null),
     // Provenance Figma : permet de mettre à jour au lieu de dupliquer.
     source: z
       .object({
@@ -193,6 +196,7 @@ export function newComponent(id: string, index: number): DSComponent {
       maxHeight: null,
     },
     set: null,
+    vector: null,
     source: null,
   };
 }
