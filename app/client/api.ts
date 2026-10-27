@@ -1,4 +1,4 @@
-import type { State, Proposal, Tokens } from '../shared/model.js';
+import type { State, Proposal } from '../shared/model.js';
 export interface Bootstrap {
   csrf: string;
   figma: { label: string; connected: boolean };
@@ -50,14 +50,6 @@ export async function bootstrap() {
 export const getState = () => request<State>('state');
 export const commit = (proposal: Proposal) =>
   request<State>('commit', { id: proposal.id });
-export async function exportTokens() {
-  const tokens = await request<Tokens>('export');
-  downloadText(
-    'design-system.tokens.json',
-    JSON.stringify(tokens, null, 2) + '\n',
-    'application/json',
-  );
-}
 export function downloadText(
   name: string,
   text: string,
