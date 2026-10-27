@@ -18,6 +18,8 @@
     "tests",
     "scripts/*.ts",
     "vite.config.ts",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "figma-plugin/src",
+    "vite.plugin.config.ts"
   ]
 }

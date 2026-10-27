@@ -36,6 +36,32 @@ export const responseSchema = z
   })
   .strict();
 export type FigmaResponse = z.infer<typeof responseSchema>;
+// Pendant un export, le plugin envoie l'avancement de la commande en cours.
+export const progressSchema = z
+  .object({
+    id: z.string().max(80),
+    progress: z
+      .object({
+        done: z.number().int().min(0),
+        total: z.number().int().min(0),
+        label: z.string().max(200),
+      })
+      .strict(),
+  })
+  .strict();
+// Commandes internes de l'export (non exposées au panneau de test).
+export type InternalCommand =
+  'export_chunk' | 'export_design_system' | 'export_preview' | 'cancel';
+export interface ExportJob {
+  id: string;
+  kind: 'design_system' | 'preview';
+  state: 'running' | 'done' | 'error' | 'cancelled';
+  done: number;
+  total: number;
+  label: string;
+  result?: unknown;
+  error?: string;
+}
 
 /** État affiché dans l'app : serveur arrêté, en attente du plugin, ou relié. */
 export interface FigmaStatus {

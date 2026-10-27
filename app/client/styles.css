@@ -321,6 +321,54 @@ small,
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.export-anchor {
+  position: relative;
+}
+.export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  width: 320px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #e0e4ec;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px #1b2e4a24;
+}
+.export-menu .segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.export-file,
+.export-problem {
+  margin: 0;
+  font-size: 12px;
+}
+.export-problem {
+  color: #704a13;
+}
+.export-progress {
+  display: grid;
+  gap: 6px;
+}
+.export-progress p {
+  margin: 0;
+}
+.export-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: #e4e8ef;
+  overflow: hidden;
+}
+.export-bar span {
+  display: block;
+  height: 100%;
+  background: #294882;
+  transition: width 0.2s ease;
+}
 .export-button {
   font-size: 12px;
   padding: 5px 10px;
@@ -1091,6 +1139,21 @@ del {
   flex-basis: 100%;
   font-size: 11px;
   margin: 0;
+}
+.export-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 24px;
+}
+.export-item {
+  max-width: 100%;
+}
+.export-item > .ds-card,
+.export-item > .ds-form,
+.export-item > .ds-nav {
+  width: 432px;
 }
 .preview-body {
   background: white;

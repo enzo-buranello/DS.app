@@ -9,6 +9,7 @@ import { ProjectStore } from './project.js';
 import { ComponentStore } from './components.js';
 import type { FigmaBridge } from './figmaBridge.js';
 import { figmaCommands } from '../shared/figmaProtocol.js';
+import { exportPayloadSchema } from '../shared/figmaExport.js';
 import { componentSchema } from '../shared/component.js';
 import {
   componentDraftSchema,
@@ -134,6 +135,14 @@ export async function createStudioServer(options: {
                 error: 'Pont Figma non démarré.',
               },
             );
+          const job = url.pathname.match(
+            /^\/api\/figma\/export\/([0-9a-f-]{36})$/,
+          );
+          if (job) {
+            if (!options.figma)
+              throw new StudioError('Pont Figma non démarré.', 503);
+            return send(200, options.figma.job(job[1]));
+          }
           if (url.pathname === '/api/export')
             return send(200, store.snapshot().tokens);
           throw new StudioError('Route inconnue.', 404);
@@ -152,7 +161,12 @@ export async function createStudioServer(options: {
         for await (const chunk of req) {
           size += chunk.length;
           if (
-            size > (url.pathname === '/api/import/image' ? 6_000_000 : 128_000)
+            size >
+            (url.pathname === '/api/import/image'
+              ? 6_000_000
+              : url.pathname === '/api/figma/export'
+                ? 8_000_000
+                : 128_000)
           )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
@@ -195,6 +209,23 @@ export async function createStudioServer(options: {
             b.params,
           );
           return send(200, { ok: true, result });
+        }
+        // Export vers Figma : payload validé ici, puis tâche suivie et annulable.
+        if (url.pathname === '/api/figma/export') {
+          if (!options.figma)
+            throw new StudioError('Pont Figma non démarré.', 503);
+          return send(
+            200,
+            options.figma.startExport(exportPayloadSchema.parse(body)),
+          );
+        }
+        const cancel = url.pathname.match(
+          /^\/api\/figma\/export\/([0-9a-f-]{36})\/cancel$/,
+        );
+        if (cancel) {
+          if (!options.figma)
+            throw new StudioError('Pont Figma non démarré.', 503);
+          return send(200, options.figma.cancelExport(cancel[1]));
         }
         if (url.pathname === '/api/proposals') {
           const b = proposeSchema.parse(body);

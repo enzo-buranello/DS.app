@@ -926,7 +926,7 @@ test('importer une image : SVG déposé, capture collée, états d’erreur, ré
 });
 
 // Plugin Figma simulé : même protocole que figma-plugin (ui.html + code.js).
-function figmaPlugin(fileName: string) {
+async function figmaPlugin(fileName: string) {
   const nodes = new Map<string, Record<string, unknown>>([
     [
       '1:5',
@@ -945,6 +945,7 @@ function figmaPlugin(fileName: string) {
     ping: () => ({ pong: true }),
     get_document_info: () => ({
       name: fileName,
+      currentPage: { id: '0:1', name: 'Composants' },
       pages: [{ id: '0:1', name: 'Composants' }],
     }),
     get_selection: () => [nodes.get('1:5')],
@@ -969,18 +970,58 @@ function figmaPlugin(fileName: string) {
       return { deleted: id };
     },
   };
+  // Export : lots réassemblés, avancement publié, annulation respectée.
+  const parts: string[] = [];
+  const cancelled = new Set<string>();
+  const exports: Record<string, any>[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let slow = 0;
+  const exportCommand = async (id: string, kind: string) => {
+    const payload = JSON.parse(parts.join(''));
+    parts.length = 0;
+    exports.push(payload);
+    const total = 4;
+    for (let done = 1; done <= total; done++) {
+      await new Promise((r) => setTimeout(r, slow));
+      if (cancelled.has(id)) throw new Error('Export annulé.');
+      ws.send(
+        JSON.stringify({
+          id,
+          progress: { done, total, label: `${kind} ${done}` },
+        }),
+      );
+    }
+    return {
+      pageId: '0:9',
+      pageName: payload.page.mode === 'new' ? payload.page.name : 'Composants',
+      created: exports.length === 1 ? 12 : 0,
+      updated: exports.length === 1 ? 0 : 12,
+      warnings: ['Police « system-ui » absente dans Figma : Inter utilisée.'],
+      orphans: [],
+    };
+  };
   const ws = new WebSocket('ws://127.0.0.1:3056');
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     const { id, command, params } = JSON.parse(String(event.data));
     try {
-      ws.send(
-        JSON.stringify({ id, ok: true, result: commands[command](params) }),
-      );
+      let result: unknown;
+      if (command === 'export_chunk') parts[params.index] = params.data;
+      else if (command === 'cancel') cancelled.add(params.target);
+      else if (
+        command === 'export_design_system' ||
+        command === 'export_preview'
+      )
+        result = await exportCommand(id, command);
+      else result = commands[command](params);
+      ws.send(JSON.stringify({ id, ok: true, result: result ?? {} }));
     } catch (e) {
       ws.send(JSON.stringify({ id, ok: false, error: (e as Error).message }));
     }
   };
-  return new Promise<WebSocket>((resolve) => (ws.onopen = () => resolve(ws)));
+  await new Promise((resolve) => (ws.onopen = resolve));
+  return Object.assign(ws, {
+    exports,
+    setSlow: (ms: number) => (slow = ms),
+  });
 }
 
 test('pont Figma : état, chaque commande depuis le panneau de test, reconnexion', async ({
@@ -1034,4 +1075,126 @@ test('pont Figma : état, chaque commande depuis le panneau de test, reconnexion
   await expect(indicator).toContainText('Figma : connecté · Nosh v2');
   await expect(await run('ping')).toContainText('"pong": true');
   again.close();
+});
+
+test('exporter vers Figma : pont absent, page cible, progression, DS puis aperçu, annulation', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const header = page.getByRole('banner');
+  const menu = page.getByRole('dialog', { name: 'Exporter vers Figma' });
+  await header.getByRole('button', { name: 'Exporter' }).click();
+  await expect(menu).toContainText(
+    'Lance le plugin DS-Studio dans Figma desktop.',
+  );
+  await expect(menu.getByRole('button', { name: 'Réessayer' })).toBeVisible();
+  await expect(menu.getByRole('combobox')).toHaveCount(0);
+
+  const plugin = await figmaPlugin('Nosh');
+  await expect(menu).toContainText('Fichier Figma : Nosh');
+  const ds = menu.getByRole('button', { name: 'Design system', exact: true });
+  await expect(ds).toHaveAttribute('aria-pressed', 'true');
+  const target = menu.getByRole('combobox', { name: 'Page cible' });
+  await expect(target.locator('option')).toHaveCount(2); // courante + nouvelle
+  await target.selectOption('new');
+  await expect(menu.getByLabel('Nom de la nouvelle page')).toHaveValue(
+    'DS-Studio – Design system',
+  );
+  plugin.setSlow(150);
+  await menu.getByRole('button', { name: 'Exporter design system' }).click();
+  const bar = menu.getByRole('progressbar', { name: 'Avancement de l’export' });
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-valuenow', /^(25|50|75)$/);
+  const toast = page
+    .getByRole('status')
+    .filter({ hasText: 'Export Design system' });
+  await expect(toast).toContainText(
+    '« DS-Studio – Design system » : 12 créé(s), 0 mis à jour',
+  );
+  await expect(toast).toContainText('Police « system-ui » absente');
+  await expect(menu).toBeHidden();
+
+  // Payload réellement produit par l'app à partir du rendu.
+  const ds1 = plugin.exports[0];
+  expect(ds1.kind).toBe('design_system');
+  expect(ds1.page).toEqual({ mode: 'new', name: 'DS-Studio – Design system' });
+  expect(ds1.variables).toHaveLength(18);
+  expect(
+    ds1.variables.find((v: { token: string }) => v.token === 'color.brand'),
+  ).toMatchObject({ name: 'color/brand', type: 'COLOR' });
+  const ids = ds1.components.map((c: { id: string }) => c.id);
+  expect(ids).toEqual(
+    expect.arrayContaining([
+      'button/primary',
+      'button/secondary',
+      'button/danger',
+      'button/primary-disabled',
+      'booking-card',
+      'form',
+      'navigation',
+    ]),
+  );
+  const primary = ds1.components.find(
+    (c: { id: string }) => c.id === 'button/primary',
+  );
+  expect(primary).toMatchObject({
+    set: 'Button',
+    variant: 'Variante=Principal, État=Défaut',
+  });
+  expect(primary.root.fill.variable).toBe('color.brand');
+  expect(primary.root.layout.direction).toBe('HORIZONTAL');
+  expect(primary.root.radiusVariables[0]).toBe('radius.control');
+  expect(primary.root.sizingH).toBe('HUG');
+  const card = ds1.components.find(
+    (c: { id: string }) => c.id === 'booking-card',
+  );
+  expect(JSON.stringify(card.root)).toContain('"instanceOf":"button/primary"');
+  const styles = ds1.textStyles.map((t: { name: string }) => t.name);
+  expect(styles).toEqual(
+    expect.arrayContaining([expect.stringMatching(/^DS-Studio\/Corps/)]),
+  );
+  expect(
+    ds1.textStyles.find((t: { name: string }) =>
+      t.name.startsWith('DS-Studio/Corps'),
+    ).fontSizeVariable,
+  ).toBe('font.body');
+
+  // Aperçu depuis la barre d'aperçu : choix pré-sélectionné, page courante.
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page
+    .locator('.stage-bar')
+    .getByRole('button', { name: 'Exporter' })
+    .click();
+  await expect(
+    menu.getByRole('button', { name: 'Aperçu actuel', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  plugin.setSlow(0);
+  await menu.getByRole('button', { name: 'Exporter aperçu actuel' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Export Aperçu actuel' }),
+  ).toContainText('0 créé(s), 12 mis à jour');
+  const preview = plugin.exports[1];
+  expect(preview.kind).toBe('preview');
+  expect(preview.page).toEqual({ mode: 'current' });
+  expect(preview.screen.id).toBe('screen/cards/375');
+  expect(JSON.stringify(preview.screen.root)).toContain(
+    '"instanceOf":"booking-card"',
+  );
+  expect(preview.components.map((c: { id: string }) => c.id)).toContain(
+    'booking-card',
+  );
+
+  // Annulation : le plugin est prévenu, l'app l'indique.
+  await page
+    .locator('.stage-bar')
+    .getByRole('button', { name: 'Exporter' })
+    .click();
+  plugin.setSlow(400);
+  await menu.getByRole('button', { name: 'Exporter aperçu actuel' }).click();
+  await expect(bar).toHaveAttribute('aria-valuenow', '25');
+  await menu.getByRole('button', { name: 'Annuler' }).click();
+  await expect(menu.getByRole('alert')).toContainText('Export annulé');
+  plugin.close();
 });

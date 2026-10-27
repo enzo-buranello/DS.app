@@ -1,5 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Catalogue, ComponentView, Scenario } from './DesignSystem.js';
+import {
+  BookingCard,
+  Button,
+  Catalogue,
+  ComponentView,
+  DSProvider,
+  ExampleForm,
+  Navigation,
+  Scenario,
+} from './DesignSystem.js';
+import type { DSComponent } from '../shared/component.js';
 import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
 import FigmaExportButton from './FigmaExportButton.js';
@@ -136,6 +146,45 @@ export function Preview() {
     <Scenario tokens={state.tokens} scenario={scenario} />
   ) : (
     <p role="alert">{error || 'Chargement du scénario…'}</p>
+  );
+}
+// Planche d'export Figma : chaque composant DS isolé, avec les tokens enregistrés.
+export function ExportSheet() {
+  const { state, error } = useDesignState();
+  const [components, setComponents] = useState<DSComponent[]>();
+  useEffect(() => {
+    request<{ components: DSComponent[] }>('components')
+      .then((r) => setComponents(r.components))
+      .catch(() => setComponents([]));
+  }, []);
+  if (!state || !components)
+    return <p role="alert">{error || 'Chargement…'}</p>;
+  const items = [
+    <Button key="p">Action principale</Button>,
+    <Button key="s" variant="secondary">
+      Secondaire
+    </Button>,
+    <Button key="d" variant="danger">
+      Supprimer
+    </Button>,
+    <Button key="x" disabled>
+      Indisponible
+    </Button>,
+    <BookingCard key="card" />,
+    <ExampleForm key="form" />,
+    <Navigation key="nav" />,
+    ...components.map((c) => <ComponentView key={c.id} component={c} />),
+  ];
+  return (
+    <DSProvider tokens={state.tokens}>
+      <div className="export-sheet">
+        {items.map((item, i) => (
+          <div className="export-item" key={i}>
+            {item}
+          </div>
+        ))}
+      </div>
+    </DSProvider>
   );
 }
 export default function App() {
@@ -416,7 +465,20 @@ export default function App() {
         <div className="header-status">
           <span className="local-badge">● Local</span>
           <FigmaBridgePanel />
-          <FigmaExportButton />
+          <FigmaExportButton
+            tokens={state.tokens}
+            scenario={{
+              id: scenario,
+              label: scenario === 'form' ? 'Inscription' : 'Découvrir',
+              width: devices[device].width,
+            }}
+            initialKind="design_system"
+            onDone={(text) => {
+              setError('');
+              setNotice(text);
+            }}
+            onError={setError}
+          />
           <button onClick={() => setHistoryOpen(true)} aria-haspopup="dialog">
             Historique · r{state.revision}
           </button>
@@ -451,7 +513,22 @@ export default function App() {
               <span aria-hidden="true">{previewToolsOpen ? ' ‹' : ' ›'}</span>
             </button>
           )}
-          {view === 'preview' && <FigmaExportButton />}
+          {view === 'preview' && (
+            <FigmaExportButton
+              tokens={state.tokens}
+              scenario={{
+                id: scenario,
+                label: scenario === 'form' ? 'Inscription' : 'Découvrir',
+                width: devices[device].width,
+              }}
+              initialKind="preview"
+              onDone={(text) => {
+                setError('');
+                setNotice(text);
+              }}
+              onError={setError}
+            />
+          )}
         </div>
         <div className="stage-body">
           {view === 'preview' && (

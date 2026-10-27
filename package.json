@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "tsx app/server/index.ts --dev",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run build:plugin",
+    "build:plugin": "vite build --config vite.plugin.config.ts",
     "start": "tsx app/server/index.ts",
     "launcher": "node scripts/launcher.mjs",
     "test:launcher": "node --test tests/launcher.test.mjs",

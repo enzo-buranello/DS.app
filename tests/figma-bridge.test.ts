@@ -182,3 +182,115 @@ test('routes HTTP du pont : état et commande relayée', async (t) => {
     400,
   );
 });
+
+test('export : lots réassemblés, progression relayée, annulation propagée', async (t) => {
+  const { EXPORT_VERSION, CHUNK_SIZE } =
+    await import('../app/shared/figmaExport.js');
+  const bridge = new FigmaBridge(0, 2000);
+  await bridge.listen();
+  t.after(() => bridge.close());
+  const leaf = (i: number) => ({
+    id: `custom/${i}`,
+    name: `Composant ${i}`,
+    set: null,
+    variant: null,
+    root: {
+      name: 'x'.repeat(150),
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 10,
+      sizingH: 'FIXED' as const,
+      sizingV: 'FIXED' as const,
+      children: Array.from({ length: 6 }, () => ({
+        name: 'y'.repeat(150),
+        x: 0,
+        y: 0,
+        w: 1,
+        h: 1,
+        sizingH: 'FIXED' as const,
+        sizingV: 'FIXED' as const,
+        children: [],
+      })),
+    },
+  });
+  const payload: import('../app/shared/figmaExport.js').ExportPayload = {
+    version: EXPORT_VERSION as 1,
+    kind: 'design_system' as const,
+    page: { mode: 'current' as const },
+    variables: [],
+    textStyles: [],
+    effectStyles: [],
+    components: Array.from({ length: 300 }, (_, i) => leaf(i)),
+  };
+  assert.ok(JSON.stringify(payload).length > CHUNK_SIZE, 'au moins deux lots');
+  // Plugin simulé : réassemble, publie l'avancement, respecte l'annulation.
+  let chunks = 0;
+  let stopAt = Infinity;
+  const parts: string[] = [];
+  const cancelled = new Set<string>();
+  const ws = new WebSocket(`ws://127.0.0.1:${bridge.status.port}`);
+  ws.onmessage = async (event) => {
+    const { id, command, params } = JSON.parse(String(event.data));
+    const reply = (body: object) => ws.send(JSON.stringify({ id, ...body }));
+    if (command === 'get_document_info')
+      return reply({ ok: true, result: { name: 'Nosh' } });
+    if (command === 'export_chunk') {
+      chunks++;
+      parts[params.index] = params.data;
+      return reply({ ok: true, result: {} });
+    }
+    if (command === 'cancel') {
+      cancelled.add(params.target);
+      return reply({ ok: true, result: {} });
+    }
+    if (command === 'export_design_system') {
+      const received = JSON.parse(parts.join(''));
+      for (let done = 1; done <= 5; done++) {
+        await new Promise((r) => setTimeout(r, 30));
+        if (cancelled.has(id) || done > stopAt)
+          return reply({ ok: false, error: 'Export annulé.' });
+        reply({ progress: { done, total: 5, label: `Élément ${done}` } });
+      }
+      return reply({
+        ok: true,
+        result: {
+          pageId: '0:1',
+          pageName: 'DS',
+          created: received.components.length,
+          updated: 0,
+          warnings: [],
+          orphans: [],
+        },
+      });
+    }
+  };
+  await new Promise((r) => (ws.onopen = r));
+  await until(() => bridge.status.fileName === 'Nosh');
+
+  const job = bridge.startExport(payload);
+  assert.equal(job.state, 'running');
+  assert.throws(() => bridge.startExport(payload), /déjà en cours/);
+  const seen: number[] = [];
+  await until(() => {
+    const j = bridge.job(job.id);
+    if (j.done) seen.push(j.done);
+    return j.state !== 'running';
+  }, 5000);
+  const done = bridge.job(job.id);
+  assert.equal(done.state, 'done', String(done.error));
+  assert.equal((done.result as { created: number }).created, 300);
+  assert.ok(chunks >= 2);
+  assert.ok(seen.length >= 2 && seen.at(-1) === 5, `progression : ${seen}`);
+
+  // Annulation pendant l'export : l'app s'arrête et le plugin est prévenu.
+  parts.length = 0;
+  stopAt = 5;
+  const second = bridge.startExport(payload);
+  await until(() => bridge.job(second.id).done >= 1, 5000);
+  const cancelledJob = bridge.cancelExport(second.id);
+  assert.equal(cancelledJob.state, 'cancelled');
+  await until(() => cancelled.size === 1);
+  assert.equal(bridge.job(second.id).state, 'cancelled');
+  ws.close();
+});

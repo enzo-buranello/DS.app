@@ -5,10 +5,19 @@ import {
   commandParams,
   DEFAULT_FIGMA_PORT,
   FIGMA_TIMEOUT_MS,
+  progressSchema,
   responseSchema,
+  type ExportJob,
   type FigmaCommand,
   type FigmaStatus,
+  type InternalCommand,
 } from '../shared/figmaProtocol.js';
+import {
+  CHUNK_SIZE,
+  EXPORT_TIMEOUT_MS,
+  exportResultSchema,
+  type ExportPayload,
+} from '../shared/figmaExport.js';
 import { StudioError } from './store.js';
 
 // Pont local app ↔ Figma Desktop. Le plugin (iframe d'origine « null ») se
@@ -128,8 +137,10 @@ export class FigmaBridge {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      onProgress?: (p: { done: number; total: number; label: string }) => void;
     }
   >();
+  private jobs = new Map<string, ExportJob & { requestId?: string }>();
   constructor(
     private port = DEFAULT_FIGMA_PORT,
     private timeout = FIGMA_TIMEOUT_MS,
@@ -236,12 +247,18 @@ export class FigmaBridge {
       .catch(() => {});
   }
   private receive(text: string) {
-    let parsed;
+    let raw: unknown;
     try {
-      parsed = responseSchema.safeParse(JSON.parse(text));
+      raw = JSON.parse(text);
     } catch {
       return;
     }
+    const progress = progressSchema.safeParse(raw);
+    if (progress.success) {
+      this.pending.get(progress.data.id)?.onProgress?.(progress.data.progress);
+      return;
+    }
+    const parsed = responseSchema.safeParse(raw);
     if (!parsed.success) return;
     const r = parsed.data;
     const pending = this.pending.get(r.id);
@@ -256,7 +273,18 @@ export class FigmaBridge {
   }
   /** Envoie une commande au plugin et attend sa réponse (10 s maximum). */
   request(command: FigmaCommand, params: unknown): Promise<unknown> {
-    const valid = commandParams[command].parse(params);
+    return this.send(command, commandParams[command].parse(params));
+  }
+  private send(
+    command: FigmaCommand | InternalCommand,
+    valid: unknown,
+    options: {
+      timeout?: number;
+      id?: string;
+      onProgress?: (p: { done: number; total: number; label: string }) => void;
+    } = {},
+  ): Promise<unknown> {
+    const timeout = options.timeout ?? this.timeout;
     const plugin = this.plugin;
     if (!plugin)
       return Promise.reject(
@@ -267,19 +295,120 @@ export class FigmaBridge {
           503,
         ),
       );
-    const id = randomUUID();
+    const id = options.id ?? randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
           new StudioError(
-            `Figma n’a pas répondu en ${Math.round(this.timeout / 1000)} s (${command}).`,
+            `Figma n’a pas répondu en ${Math.round(timeout / 1000)} s (${command}).`,
             504,
           ),
         );
-      }, this.timeout);
-      this.pending.set(id, { resolve, reject, timer });
+      }, timeout);
+      this.pending.set(id, {
+        resolve,
+        reject,
+        timer,
+        onProgress: options.onProgress,
+      });
       plugin.send(JSON.stringify({ id, command, params: valid }));
     });
+  }
+
+  /** Export en tâche de fond : payload découpé en lots, progression, annulation. */
+  startExport(payload: ExportPayload) {
+    if (!this.plugin)
+      throw new StudioError(
+        'Lance le plugin DS-Studio dans Figma desktop.',
+        503,
+      );
+    if ([...this.jobs.values()].some((j) => j.state === 'running'))
+      throw new StudioError('Un export est déjà en cours.', 409);
+    const job: ExportJob & { requestId?: string } = {
+      id: randomUUID(),
+      kind: payload.kind,
+      state: 'running',
+      done: 0,
+      total: 0,
+      label: 'Envoi au plugin…',
+    };
+    this.jobs.set(job.id, job);
+    for (const old of [...this.jobs.keys()].slice(0, -20))
+      this.jobs.delete(old);
+    void (async () => {
+      try {
+        const transfer = randomUUID();
+        const json = JSON.stringify(payload);
+        const total = Math.max(1, Math.ceil(json.length / CHUNK_SIZE));
+        for (let index = 0; index < total; index++) {
+          if (job.state !== 'running') return;
+          job.label = `Envoi au plugin (${index + 1}/${total})…`;
+          await this.send('export_chunk', {
+            transfer,
+            index,
+            total,
+            data: json.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE),
+          });
+        }
+        if (job.state !== 'running') return;
+        job.requestId = randomUUID();
+        const result = await this.send(
+          payload.kind === 'design_system'
+            ? 'export_design_system'
+            : 'export_preview',
+          { transfer },
+          {
+            id: job.requestId,
+            timeout: EXPORT_TIMEOUT_MS,
+            onProgress: (p) => {
+              if (job.state !== 'running') return;
+              job.done = p.done;
+              job.total = p.total;
+              job.label = p.label;
+            },
+          },
+        );
+        if (job.state !== 'running') return;
+        job.result = exportResultSchema.parse(result);
+        job.done = job.total;
+        job.state = 'done';
+      } catch (e) {
+        if (job.state !== 'running') return;
+        job.state = 'error';
+        job.error = (e as Error).message;
+      }
+    })();
+    return this.job(job.id);
+  }
+  job(id: string): ExportJob {
+    const job = this.jobs.get(id);
+    if (!job) throw new StudioError('Export inconnu.', 404);
+    const { requestId: _requestId, ...visible } = job;
+    return visible;
+  }
+  /** Annule l'export : le plugin s'arrête avant l'élément suivant. */
+  cancelExport(id: string) {
+    const job = this.jobs.get(id);
+    if (!job) throw new StudioError('Export inconnu.', 404);
+    if (job.state !== 'running') return this.job(id);
+    job.state = 'cancelled';
+    job.label = 'Export annulé.';
+    if (job.requestId && this.plugin) {
+      this.plugin.send(
+        JSON.stringify({
+          id: randomUUID(),
+          command: 'cancel',
+          params: { target: job.requestId },
+        }),
+      );
+      const pending = this.pending.get(job.requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pending.delete(job.requestId);
+        pending.reject(new StudioError('Export annulé.', 499));
+      }
+    }
+    return this.job(id);
   }
 }

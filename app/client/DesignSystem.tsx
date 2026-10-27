@@ -21,6 +21,24 @@ export function DSProvider({
     </div>
   );
 }
+// Marqueurs lus par l'export Figma : id stable (dsStudioId), nom, component set
+// et variante au format Figma « Propriété=Valeur, … ».
+export const dsMark = (
+  id: string,
+  name: string,
+  set?: string,
+  variant?: string,
+) => ({
+  'data-ds-id': id,
+  'data-ds-name': name,
+  ...(set ? { 'data-ds-set': set } : {}),
+  ...(variant ? { 'data-ds-variant': variant } : {}),
+});
+const variantName = {
+  primary: 'Principal',
+  secondary: 'Secondaire',
+  danger: 'Danger',
+} as const;
 export function Button({
   variant = 'primary',
   children,
@@ -37,6 +55,12 @@ export function Button({
       className={`ds-button ${variant}`}
       disabled={disabled}
       onClick={onClick}
+      {...dsMark(
+        `button/${variant}${disabled ? '-disabled' : ''}`,
+        'Button',
+        'Button',
+        `Variante=${variantName[variant]}, État=${disabled ? 'Désactivé' : 'Défaut'}`,
+      )}
     >
       {children}
     </button>
@@ -45,7 +69,10 @@ export function Button({
 export function BookingCard() {
   const [booked, setBooked] = useState(false);
   return (
-    <article className="ds-card">
+    <article
+      className="ds-card"
+      {...dsMark('booking-card', 'Carte réservation')}
+    >
       <div className="card-kicker">ATELIER · 45 MIN</div>
       <h3>Faire moins, mais mieux.</h3>
       <p>Un atelier pour imaginer des services plus attentifs au quotidien.</p>
@@ -66,6 +93,7 @@ export function ExampleForm() {
   const [sent, setSent] = useState(false);
   return (
     <form
+      {...dsMark('form', 'Formulaire')}
       className="ds-form"
       onSubmit={(e) => {
         e.preventDefault();
@@ -105,7 +133,11 @@ export function ExampleForm() {
 export function Navigation() {
   const [tab, setTab] = useState('Découvrir');
   return (
-    <nav aria-label="Navigation du scénario" className="ds-nav">
+    <nav
+      aria-label="Navigation du scénario"
+      className="ds-nav"
+      {...dsMark('navigation', 'Navigation')}
+    >
       {['Découvrir', 'Favoris', 'Profil'].map((t) => (
         <button
           key={t}
@@ -156,7 +188,20 @@ export function VectorView({ vector }: { vector: Vector }) {
 // Composant créé à la main : le style vient du modèle, les tokens restent des var().
 export function ComponentView({ component }: { component: DSComponent }) {
   return (
-    <div className="ds-custom" style={componentCss(component) as CSSProperties}>
+    <div
+      className="ds-custom"
+      style={componentCss(component) as CSSProperties}
+      {...dsMark(
+        `custom/${component.id}`,
+        component.name,
+        component.set?.name,
+        component.set
+          ? Object.entries(component.set.properties)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(', ') || undefined
+          : undefined,
+      )}
+    >
       {component.vector && <VectorView vector={component.vector} />}
       {component.icon && <span aria-hidden="true">{component.icon}</span>}
       <span>{component.label}</span>
