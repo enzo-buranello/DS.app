@@ -16,8 +16,10 @@ export interface FigmaConnector {
     approvalId: string,
   ): Promise<{ revision: string; readback: Tokens }>;
 }
+// V3 : pont par plugin local (voir plugins/figma-bridge). Pas de connexion permanente :
+// le plugin n'agit que lorsque l'utilisateur le lance dans Figma.
 export const figmaStatus = {
   connected: false,
-  label: 'Figma non connecté',
+  label: 'Figma · plugin local',
   writeEnabled: false,
 } as const;

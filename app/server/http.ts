@@ -12,22 +12,27 @@ import { unvalidatedAdapter } from '../../connectors/agents/unvalidated.js';
 import { ClaudeAdapter } from '../../connectors/agents/claude.js';
 import type { AgentAdapter } from '../../connectors/agents/types.js';
 import { figmaStatus } from '../../connectors/figma/contract.js';
+import { FigmaBridge } from './figma.js';
+import { importItems } from '../shared/figma.js';
 import type { RecordInfo } from '../../scripts/runtime.mjs';
 
 export async function createStudioServer(options: {
   root: string;
   store: Store;
   agent?: AgentAdapter;
+  claude?: AgentAdapter;
   dev?: boolean;
   control?: { record: RecordInfo; stop: () => void };
 }) {
   const { root, store } = options;
   const adapters: Record<string, AgentAdapter> = {
     codex: options.agent ?? new CodexAdapter(),
-    claude: new ClaudeAdapter(),
+    claude: options.claude ?? new ClaudeAdapter(),
     gemini: unvalidatedAdapter('gemini'),
   };
   const project = new ProjectStore(store.directory);
+  const figma = new FigmaBridge(store.directory);
+  await figma.init();
   const csrf = randomBytes(32).toString('hex');
   let busy = false;
   const active = new Set<AbortController>();
@@ -65,6 +70,15 @@ export async function createStudioServer(options: {
         throw new StudioError(
           'Hôte refusé. Utilisez l’adresse 127.0.0.1 affichée au démarrage.',
           403,
+        );
+      const url0 = new URL(req.url ?? '/', origin);
+      // Plugin Figma : origine « null », authentifié par le code d'appairage.
+      if (url0.pathname.startsWith('/plugin/figma/'))
+        return await figma.handle(
+          req,
+          res,
+          url0,
+          () => store.snapshot().tokens,
         );
       if (req.headers.origin && req.headers.origin !== origin)
         throw new StudioError('Origine non autorisée.', 403);
@@ -109,6 +123,30 @@ export async function createStudioServer(options: {
           if (url.pathname === '/api/project')
             return send(200, await project.read());
           if (url.pathname === '/api/state') return send(200, store.snapshot());
+          if (url.pathname === '/api/figma') {
+            const imported = await figma.lastImport();
+            const exported = await figma.lastExport();
+            return send(200, {
+              pairCode: figma.pairCode,
+              server: origin,
+              import: imported && {
+                date: imported.date,
+                fileName: imported.fileName,
+                items: importItems(imported, store.snapshot().tokens),
+                images: imported.images,
+              },
+              export: exported && {
+                date: exported.date,
+                screens: exported.screens.map((s) => s.name),
+              },
+            });
+          }
+          if (url.pathname.startsWith('/api/figma/image/')) {
+            const png = await figma.image(url.pathname.split('/').pop()!);
+            res.writeHead(200, { 'Content-Type': 'image/png' });
+            res.end(png);
+            return;
+          }
           if (url.pathname === '/api/export')
             return send(200, store.snapshot().tokens);
           throw new StudioError('Route inconnue.', 404);
@@ -126,7 +164,9 @@ export async function createStudioServer(options: {
         let size = 0;
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > 128_000)
+          if (
+            size > (url.pathname === '/api/figma/screens' ? 3_000_000 : 128_000)
+          )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
         }
@@ -143,6 +183,19 @@ export async function createStudioServer(options: {
             .strict()
             .parse(body);
           return send(200, await project.save(b.base, b.project));
+        }
+        if (url.pathname === '/api/figma/pair-reset') {
+          await figma.resetPairing();
+          return send(200, { pairCode: figma.pairCode });
+        }
+        if (url.pathname === '/api/figma/screens')
+          return send(
+            200,
+            await figma.saveScreens(body, store.snapshot().tokens),
+          );
+        if (url.pathname === '/api/figma/propose') {
+          const b = proposeSchema.parse(body);
+          return send(200, store.propose(b.revision, b.changes, 'figma'));
         }
         if (url.pathname === '/api/proposals') {
           const b = proposeSchema.parse(body);

@@ -8,7 +8,7 @@ test('boucle centrale réelle : diff, validation, propagation, recharge, annulat
     page.getByRole('heading', { name: 'Une source. Toutes les vues.' }),
   ).toBeVisible();
   await expect(
-    page.getByText('Figma non connecté', { exact: true }),
+    page.getByText('Figma · plugin local', { exact: true }),
   ).toBeVisible();
   const catalogue = page.locator('.ds-panel');
   const mobile = page.frameLocator('iframe');

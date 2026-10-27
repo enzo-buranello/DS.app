@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Catalogue, Scenario } from './DesignSystem.js';
 import ProjectBrief from './ProjectBrief.js';
+import FigmaPanel from './FigmaPanel.js';
 import { useTokenDraft } from './useTokenDraft.js';
 import {
   bootstrap,
@@ -358,6 +359,11 @@ export default function App() {
           </div>
           <div className="panel-body">
             <ProjectBrief />
+            <FigmaPanel
+              tokens={state.tokens}
+              revision={state.revision}
+              onProposal={setProposal}
+            />
             <label className="field">
               Mode de travail
               <select value={agent} onChange={(e) => setAgent(e.target.value)}>

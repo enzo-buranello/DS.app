@@ -1,0 +1,242 @@
+<style>
+  body {
+    font:
+      12px/1.45 Inter,
+      system-ui,
+      sans-serif;
+    margin: 0;
+    padding: 14px;
+    color: var(--figma-color-text, #222);
+    background: var(--figma-color-bg, #fff);
+  }
+  h1 {
+    font-size: 14px;
+    margin: 0 0 4px;
+  }
+  h2 {
+    font-size: 12px;
+    margin: 16px 0 6px;
+  }
+  p {
+    margin: 4px 0;
+    color: var(--figma-color-text-secondary, #666);
+  }
+  label {
+    display: block;
+    margin: 6px 0 2px;
+    font-weight: 600;
+  }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px;
+    border: 1px solid var(--figma-color-border, #ccc);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+  button {
+    margin: 6px 6px 0 0;
+    padding: 6px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--figma-color-border, #ccc);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+  button.primary {
+    background: var(--figma-color-bg-brand, #0d99ff);
+    color: #fff;
+    border: 0;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  #status {
+    margin-top: 10px;
+    padding: 8px;
+    border-radius: 5px;
+    background: var(--figma-color-bg-secondary, #f5f5f5);
+    white-space: pre-wrap;
+    min-height: 18px;
+  }
+  #status.err {
+    background: #fde8e8;
+    color: #9b1c1c;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+    font-size: 11px;
+  }
+  td,
+  th {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--figma-color-border, #eee);
+    text-align: left;
+  }
+  .scroll {
+    max-height: 170px;
+    overflow: auto;
+  }
+  .chg {
+    font-weight: 600;
+  }
+</style>
+
+<h1>DS-Studio Bridge</h1>
+<p>Lien entre ce fichier Figma et DS-Studio sur votre Mac.</p>
+
+<label for="pair">Code d’appairage (affiché dans DS-Studio)</label>
+<input id="pair" autocomplete="off" spellcheck="false" />
+<label for="server">Adresse du serveur</label>
+<input id="server" spellcheck="false" />
+<button id="test">Enregistrer et tester</button>
+
+<h2>Importer dans DS-Studio</h2>
+<p>
+  Variables locales, styles couleur/texte et calques sélectionnés (12 max, en
+  PNG).
+</p>
+<button id="import" class="primary">Importer</button>
+
+<h2>Exporter vers ce fichier</h2>
+<p>Préparez d’abord l’export dans DS-Studio, puis prévisualisez ici.</p>
+<button id="preview">Prévisualiser</button>
+<button id="apply" class="primary" disabled>Appliquer dans Figma</button>
+<div id="preview-out"></div>
+
+<div id="status"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let exportData = null;
+  let previewTokens = null;
+  const status = (text, err) => {
+    $('status').textContent = text;
+    $('status').className = err ? 'err' : '';
+  };
+  const send = (msg) => parent.postMessage({ pluginMessage: msg }, '*');
+  const base = () => $('server').value.replace(/\/+$/, '');
+  async function call(route, body) {
+    let res;
+    try {
+      res = await fetch(base() + '/plugin/figma/' + route, {
+        method: body ? 'POST' : 'GET',
+        headers: Object.assign(
+          { Authorization: 'Bearer ' + $('pair').value.trim() },
+          body ? { 'Content-Type': 'application/json' } : {},
+        ),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) {
+      throw new Error(
+        'DS-Studio injoignable sur ' + base() + '. L’app est-elle lancée ?',
+      );
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Erreur ' + res.status);
+    return data;
+  }
+  const escape = (s) =>
+    String(s).replace(
+      /[&<>"]/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
+    );
+
+  $('test').onclick = async () => {
+    send({
+      type: 'save-settings',
+      pair: $('pair').value.trim(),
+      server: base(),
+    });
+    try {
+      await call('ping');
+      status('Connecté à DS-Studio.');
+    } catch (e) {
+      status(e.message, true);
+    }
+  };
+  $('import').onclick = () => {
+    status('Lecture du fichier…');
+    send({ type: 'collect-import' });
+  };
+  $('preview').onclick = async () => {
+    $('apply').disabled = true;
+    $('preview-out').innerHTML = '';
+    try {
+      status('Chargement de l’export…');
+      exportData = await call('export');
+      previewTokens = JSON.stringify(exportData.tokens);
+      send({ type: 'preview-export', data: exportData });
+    } catch (e) {
+      status(e.message, true);
+    }
+  };
+  $('apply').onclick = async () => {
+    $('apply').disabled = true;
+    try {
+      // Relecture juste avant l'écriture : on refuse si DS-Studio a changé.
+      const fresh = await call('export');
+      status('Écriture dans Figma…');
+      send({ type: 'apply-export', data: fresh, previewTokens });
+    } catch (e) {
+      status(e.message, true);
+    }
+  };
+
+  onmessage = async (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'settings') {
+      $('pair').value = msg.pair;
+      $('server').value = msg.server;
+    } else if (msg.type === 'import-data') {
+      const p = msg.payload;
+      try {
+        status('Envoi à DS-Studio…');
+        const r = await call('import', p);
+        status(
+          `Importé : ${r.variables} variable(s), ${r.paintStyles} style(s) couleur, ${r.textStyles} style(s) texte, ${r.images} image(s).\n` +
+            'Dans DS-Studio : Figma > Actualiser, puis vérifiez les correspondances avant de proposer.',
+        );
+      } catch (e) {
+        status(e.message, true);
+      }
+    } else if (msg.type === 'export-preview') {
+      const changed = msg.rows.filter((r) => r.action !== '=');
+      $('preview-out').innerHTML =
+        `<p>Collection « DS-Studio » ${msg.collectionExists ? 'existante' : 'à créer'} · ${changed.length} variable(s) à créer ou modifier.</p>` +
+        '<div class="scroll"><table><tr><th>Variable</th><th>Avant</th><th>Après</th></tr>' +
+        msg.rows
+          .map(
+            (r) =>
+              `<tr class="${r.action !== '=' ? 'chg' : ''}"><td>${escape(r.name)}</td><td>${escape(r.before)}</td><td>${escape(r.after)}</td></tr>`,
+          )
+          .join('') +
+        '</table></div>' +
+        `<p>Écrans (page « DS-Studio », remplacés s’ils existent) :<br>${msg.screens.map(escape).join('<br>')}</p>`;
+      $('apply').disabled = false;
+      status('Vérifiez puis cliquez « Appliquer dans Figma ».');
+    } else if (msg.type === 'export-done') {
+      const s = msg.summary;
+      status(
+        `Terminé : ${s.screens} écran(s), ${s.variables} variable(s).` +
+          (s.mismatched.length
+            ? `\nAttention, valeurs différentes après relecture : ${s.mismatched.join(', ')}`
+            : '\nRelecture OK.'),
+        s.mismatched.length > 0,
+      );
+      send({ type: 'notify', message: 'DS-Studio : export terminé.' });
+    } else if (msg.type === 'progress') {
+      status(msg.message);
+    } else if (msg.type === 'error') {
+      status(msg.message, true);
+    }
+  };
+  send({ type: 'init' });
+</script>

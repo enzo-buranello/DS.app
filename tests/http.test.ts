@@ -37,6 +37,16 @@ async function fixture(
         throw new Error('Codex indisponible : authentification nécessaire.');
       },
     },
+    // Le vrai CLI Claude peut exister sur la machine de test : on le simule.
+    claude: {
+      id: 'claude',
+      async status() {
+        return { available: false, detail: 'Non authentifié (simulation)' };
+      },
+      async reply() {
+        throw new Error('Claude indisponible : connexion nécessaire.');
+      },
+    },
   });
   await new Promise<void>((r) => app.server.listen(0, '127.0.0.1', r));
   t.after(async () => {

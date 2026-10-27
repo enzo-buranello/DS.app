@@ -57,7 +57,7 @@ try {
     app.server.listen(port, '127.0.0.1', () => resolve());
   });
   console.log(
-    `DS-Studio · http://127.0.0.1:${port}\nMode manuel autonome · Figma non connecté · Ctrl+C pour fermer.`,
+    `DS-Studio · http://127.0.0.1:${port}\nMode manuel autonome · Figma via plugin local · Ctrl+C pour fermer.`,
   );
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);

@@ -1,9 +1,19 @@
 # Figma : source de vérité réelle, pas intégration simulée
 
-**V2 : NOT IMPLEMENTED / non connecté.** Aucune authentification, lecture ou écriture
-Figma n’a été réalisée. Aucun fichier explicitement autorisé n’a été fourni. Les
-outils Figma présents dans une session de développement ne sont pas distribués
-avec ce starter et ne constituent pas une connexion de l’application.
+**V3 : pont par plugin local — IMPLEMENTED, PARTIAL.** Voir
+[plugins/figma-bridge](../plugins/figma-bridge/README.md). Le plugin, lancé par
+l'utilisateur dans Figma Desktop, importe variables, styles et sélection, et
+exporte les écrans en frames natives liées à une collection de variables.
+Testé : routes HTTP, appairage, validation des données, sérialisation des
+écrans dans Chromium, et logique du plugin contre une imitation de l'API Figma.
+**Non testé dans Figma réel** depuis ce dépôt : à vérifier au premier usage.
+
+Garanties : appairage par code révocable, origine « null » seule acceptée sur
+`/plugin/figma/*`, import soumis au diff humain, export prévisualisé puis
+appliqué seulement si les tokens n'ont pas changé, relecture après écriture.
+Aucun jeton Figma, aucun MCP Figma dans l'agent de discussion.
+
+Le reste de ce document décrit l'ancienne approche V2 (sans plugin).
 
 La [documentation Figma officielle du serveur distant](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/)
 indique que seuls les clients du catalogue autorisé peuvent se connecter. Un
