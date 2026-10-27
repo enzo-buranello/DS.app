@@ -70,6 +70,7 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
   page,
 }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
   const frame = page.frameLocator('iframe');
   for (const [value, width] of [
     ['0', 320],
@@ -696,6 +697,7 @@ test('créer un composant : chaque réglage en direct, lien aux tokens, persista
     layout: { gap: { token: 'space.lg' }, padding: { left: { px: 40 } } },
   });
   await page.getByText('Import Figma', { exact: true }).click();
+  await expect(page.locator('#figma-import')).toBeHidden();
   await page.reload();
   await expect(page.locator('#figma-import')).toBeHidden();
   await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
@@ -948,4 +950,46 @@ test('import Figma : états, pages, sélection multiple, variantes, ré-import e
   await expect(section.getByText('Figma non connecté.')).toBeVisible({
     timeout: 10_000,
   });
+});
+
+test('réglages d’aperçu : dans la fenêtre d’aperçu seulement, repliables, état conservé', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const width = page.getByRole('combobox', { name: 'Largeur d’écran' });
+  const panel = page.getByRole('complementary', { name: 'Paramètres' });
+  // Vue Design System : aucun réglage d'aperçu, ni dans la scène ni dans le panneau.
+  await expect(width).toHaveCount(0);
+  await expect(panel.getByRole('combobox', { name: 'Scénario' })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  const tools = page.getByRole('group', { name: 'Réglages d’aperçu' });
+  await expect(tools).toBeVisible();
+  await tools
+    .getByRole('combobox', { name: 'Largeur d’écran' })
+    .selectOption('2');
+  await tools.getByRole('combobox', { name: 'Scénario' }).selectOption('form');
+  await expect(page.locator('iframe')).toHaveAttribute('width', '430');
+  await expect(page.locator('iframe')).toHaveAttribute('src', /scenario=form/);
+  const toggle = page.getByRole('button', { name: /Réglages d’aperçu/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(tools).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expectFits(page);
+  await toggle.click();
+  await expect(tools).toBeVisible();
+  // Aller-retour vers le Design System : même largeur, même scénario.
+  await page
+    .getByRole('button', { name: 'Design System', exact: true })
+    .click();
+  await expect(width).toHaveCount(0);
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await expect(width).toHaveValue('2');
+  await expect(page.getByRole('combobox', { name: 'Scénario' })).toHaveValue(
+    'form',
+  );
+  await expect(page.locator('iframe')).toHaveAttribute('width', '430');
 });

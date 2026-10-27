@@ -38,15 +38,18 @@ function useSections() {
       return fallback;
     }
   });
-  useEffect(() => {
-    try {
-      localStorage.setItem(SECTIONS_KEY, JSON.stringify(open));
-    } catch {
-      /* Facultatif. */
-    }
-  }, [open]);
+  // Écriture immédiate (idempotente) : un rechargement juste après le clic la conserve.
   const set = (id: SectionId, value: boolean) =>
-    setOpen((o) => (o[id] === value ? o : { ...o, [id]: value }));
+    setOpen((o) => {
+      if (o[id] === value) return o;
+      const next = { ...o, [id]: value };
+      try {
+        localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        /* Facultatif. */
+      }
+      return next;
+    });
   return [open, set] as const;
 }
 
@@ -159,6 +162,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [view, setView] = useState<'ds' | 'preview'>('ds');
   const [panelOpen, setPanelOpen] = useState(true);
+  const [previewToolsOpen, setPreviewToolsOpen] = useState(true);
   const [sections, setSection] = useSections();
   const custom = useComponents(setError);
   const [device, setDevice] = useState(1);
@@ -380,10 +384,6 @@ export default function App() {
     k.toLowerCase().includes(search.trim().toLowerCase()),
   );
   const fit = view === 'ds' ? catalogueFit : previewFit;
-  const showPreview = (change: () => void) => {
-    change();
-    setView('preview');
-  };
   return (
     <div
       className="studio"
@@ -430,7 +430,51 @@ export default function App() {
             {view === 'preview' && `${devices[device].width} px · `}
             {Math.round(fit.scale * 100)} %
           </span>
+          {view === 'preview' && (
+            <button
+              className="preview-tools-toggle"
+              aria-expanded={previewToolsOpen}
+              aria-controls="preview-tools"
+              onClick={() => setPreviewToolsOpen(!previewToolsOpen)}
+            >
+              Réglages d’aperçu
+              <span aria-hidden="true">{previewToolsOpen ? ' ▴' : ' ▾'}</span>
+            </button>
+          )}
         </div>
+        {view === 'preview' && (
+          <div
+            className="preview-tools"
+            id="preview-tools"
+            role="group"
+            aria-label="Réglages d’aperçu"
+            hidden={!previewToolsOpen}
+          >
+            <label className="field">
+              Largeur d’écran
+              <select
+                value={device}
+                onChange={(e) => setDevice(Number(e.target.value))}
+              >
+                {devices.map((d, i) => (
+                  <option key={d.width} value={i}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Scénario
+              <select
+                value={scenario}
+                onChange={(e) => setScenario(e.target.value)}
+              >
+                <option value="cards">Découvrir</option>
+                <option value="form">Inscription</option>
+              </select>
+            </label>
+          </div>
+        )}
         <div className="stage-frame" ref={stageFrame}>
           {view === 'ds' ? (
             <div
@@ -708,42 +752,6 @@ export default function App() {
                     : 'Contraste à améliorer'}
                 </p>
               )}
-            </section>
-
-            <section
-              aria-labelledby="preview-title"
-              className="settings-section"
-            >
-              <h3 id="preview-title">Aperçu</h3>
-              <div className="field-row">
-                <label className="field">
-                  Largeur d’écran
-                  <select
-                    value={device}
-                    onChange={(e) =>
-                      showPreview(() => setDevice(Number(e.target.value)))
-                    }
-                  >
-                    {devices.map((d, i) => (
-                      <option key={d.width} value={i}>
-                        {d.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  Scénario
-                  <select
-                    value={scenario}
-                    onChange={(e) =>
-                      showPreview(() => setScenario(e.target.value))
-                    }
-                  >
-                    <option value="cards">Découvrir</option>
-                    <option value="form">Inscription</option>
-                  </select>
-                </label>
-              </div>
             </section>
 
             <section className="settings-section">

@@ -185,6 +185,35 @@ small,
   background: white;
   box-shadow: 0 1px 3px #1b2e4a24;
 }
+.stage-bar .stage-meta {
+  margin-left: auto;
+}
+.preview-tools-toggle {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+.preview-tools {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid #e0e4ec;
+  border-radius: 10px;
+  animation: tools-in 0.16s ease-out;
+}
+.preview-tools[hidden] {
+  display: none;
+}
+.preview-tools .field {
+  flex: 0 1 220px;
+}
+@keyframes tools-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
 .stage-meta {
   font-size: 11px;
   color: #69758a;
