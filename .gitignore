@@ -27,3 +27,7 @@ Thumbs.db
 
 # Binaire Claude Code local (macOS arm64), non versionné.
 tools/
+
+# Archives et exports locaux.
+/*.tgz
+/.ds-studio-export/
