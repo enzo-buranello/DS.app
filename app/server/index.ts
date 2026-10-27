@@ -1,5 +1,6 @@
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { tokensSchema } from '../shared/model.js';
 import { Store } from './store.js';
@@ -10,6 +11,13 @@ const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../..',
 );
+// Secrets OAuth Figma : seules les clés FIGMA_* de .env (hors Git) sont lues,
+// sans écraser une variable déjà définie dans le terminal.
+const envFile = path.join(root, '.env');
+if (existsSync(envFile))
+  for (const [k, v] of Object.entries(parseEnv(readFileSync(envFile, 'utf8'))))
+    if (/^FIGMA_(CLIENT_ID|CLIENT_SECRET)$/.test(k) && !process.env[k])
+      process.env[k] = v;
 const directory = process.env.DS_STUDIO_DATA_DIR
   ? path.resolve(process.env.DS_STUDIO_DATA_DIR)
   : path.join(root, '.ds-studio');

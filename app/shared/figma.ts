@@ -1,157 +1,5 @@
 import { z } from 'zod';
-import { tokenKeys, type TokenKey, type Tokens } from './model.js';
-
-// Données envoyées par le plugin Figma. Tout est non fiable : bornes strictes.
-const name = z.string().trim().min(1).max(200);
-const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-const variableBase = { name, collection: z.string().max(200) };
-export const figmaVariableSchema = z.discriminatedUnion('type', [
-  z.object({ ...variableBase, type: z.literal('COLOR'), value: hex }).strict(),
-  z
-    .object({
-      ...variableBase,
-      type: z.literal('FLOAT'),
-      value: z.number().finite(),
-    })
-    .strict(),
-  z
-    .object({
-      ...variableBase,
-      type: z.literal('STRING'),
-      value: z.string().max(200),
-    })
-    .strict(),
-]);
-export const figmaPaintStyleSchema = z.object({ name, hex }).strict();
-export const figmaTextStyleSchema = z
-  .object({
-    name,
-    fontFamily: z.string().max(100),
-    fontStyle: z.string().max(100),
-    fontSize: z.number().finite().min(0).max(1000),
-  })
-  .strict();
-export const figmaImageSchema = z
-  .object({
-    name,
-    width: z.number().finite().min(0).max(20_000),
-    height: z.number().finite().min(0).max(20_000),
-    // PNG en base64, 3 Mo max par image.
-    png: z
-      .string()
-      .max(4_000_000)
-      .regex(/^[A-Za-z0-9+/]+={0,2}$/),
-  })
-  .strict();
-export const figmaImportSchema = z
-  .object({
-    fileName: z.string().max(200),
-    variables: z.array(figmaVariableSchema).max(2000),
-    paintStyles: z.array(figmaPaintStyleSchema).max(1000),
-    textStyles: z.array(figmaTextStyleSchema).max(500),
-    images: z.array(figmaImageSchema).max(12),
-  })
-  .strict();
-export type FigmaImport = z.infer<typeof figmaImportSchema>;
-
-// Ce que le serveur conserve (images sur disque, référencées par un id serveur).
-export interface StoredImport extends Omit<FigmaImport, 'images'> {
-  date: string;
-  images: { id: string; name: string; width: number; height: number }[];
-}
-
-/** Un élément Figma candidat à l'import, avec sa correspondance proposée. */
-export interface ImportItem {
-  source: 'variable' | 'paint' | 'text';
-  label: string;
-  value: string | number;
-  suggested: TokenKey | null;
-}
-
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-const fonts = ['system-ui', 'Arial', 'Georgia', 'Verdana'];
-
-/** Une valeur Figma est-elle compatible avec le type du token ? */
-export function compatible(
-  tokens: Tokens,
-  key: TokenKey,
-  value: string | number,
-): boolean {
-  const type = tokens[key].$type;
-  if (type === 'color')
-    return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
-  if (type === 'dimension')
-    return typeof value === 'number' && value >= 0 && value <= 128;
-  return typeof value === 'string' && fonts.includes(value);
-}
-
-function guess(
-  tokens: Tokens,
-  label: string,
-  value: string | number,
-  prefer: (k: TokenKey) => boolean,
-): TokenKey | null {
-  const n = norm(label.split('/').slice(-2).join(''));
-  const full = norm(label);
-  const keys = tokenKeys.filter(
-    (k) => prefer(k) && compatible(tokens, k, value),
-  );
-  // Nom exact (color/brand ↔ color.brand), puis suffixe (Brand/Hover ↔ color.brandHover).
-  return (
-    keys.find((k) => norm(k) === full) ??
-    keys.find((k) => norm(k) === n) ??
-    keys.find((k) => norm(k).endsWith(n) && n.length >= 3) ??
-    keys.find(
-      (k) =>
-        n.endsWith(norm(k.split('.')[1])) && norm(k.split('.')[1]).length >= 3,
-    ) ??
-    null
-  );
-}
-
-/** Liste plate des éléments importés avec une correspondance suggérée. */
-export function importItems(data: StoredImport, tokens: Tokens): ImportItem[] {
-  const items: ImportItem[] = [];
-  for (const v of data.variables) {
-    const label = `${v.collection ? v.collection + ' · ' : ''}${v.name}`;
-    items.push({
-      source: 'variable',
-      label,
-      value: v.value,
-      suggested: guess(tokens, v.name, v.value, () => true),
-    });
-  }
-  for (const p of data.paintStyles)
-    items.push({
-      source: 'paint',
-      label: p.name,
-      value: p.hex,
-      suggested: guess(tokens, p.name, p.hex, (k) => k.startsWith('color.')),
-    });
-  for (const t of data.textStyles) {
-    const n = norm(t.name);
-    const size: TokenKey | null = /body|corps|paragraph|text/.test(n)
-      ? 'font.body'
-      : /head|title|titre|h1|h2|display/.test(n)
-        ? 'font.heading'
-        : null;
-    items.push({
-      source: 'text',
-      label: `${t.name} · taille`,
-      value: t.fontSize,
-      suggested: size && compatible(tokens, size, t.fontSize) ? size : null,
-    });
-    items.push({
-      source: 'text',
-      label: `${t.name} · police`,
-      value: t.fontFamily,
-      suggested: compatible(tokens, 'font.family', t.fontFamily)
-        ? 'font.family'
-        : null,
-    });
-  }
-  return items;
-}
+import { tokenKeys, type TokenKey } from './model.js';
 
 // --- Export : arbre de nœuds produit par l'app, dessiné par le plugin. ---
 export interface SceneFill {
@@ -206,12 +54,7 @@ export interface SceneScreen {
   width: number;
   root: SceneNode;
 }
-export interface FigmaExport {
-  date: string;
-  tokens: Tokens;
-  screens: SceneScreen[];
-}
-
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const fill = z
   .object({
     hex,
@@ -306,25 +149,10 @@ export const exportSummarySchema = z
     screens: z.number().int().min(0),
     variables: z.number().int().min(0),
     mismatched: z.array(z.string().max(200)).max(200),
+    // Correspondances clé DS-Studio → id du nœud Figma, conservées côté app.
+    nodes: z.record(z.string().max(200), z.string().max(80)),
   })
   .strict();
-export const screensSchema = z
-  .object({
-    screens: z
-      .array(
-        z
-          .object({
-            name: z.string().max(200),
-            width: z.number().int().min(1).max(10_000),
-            root: sceneNodeSchema,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(12),
-  })
-  .strict();
-
 // Canal direct avec le plugin ouvert : il annonce le fichier et ses pages,
 // reçoit des commandes et renvoie les résultats. Seul le fichier ouvert est visible.
 export const liveInfoSchema = z

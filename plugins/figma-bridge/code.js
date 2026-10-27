@@ -1,11 +1,10 @@
 // DS-Studio Bridge — code principal du plugin (bac à sable Figma).
-// Aucune écriture sans clic : l'export est d'abord prévisualisé, puis appliqué
-// seulement si les tokens n'ont pas changé entre-temps, puis relu.
+// Le plugin n'écrit que sur demande de DS-Studio (clic « Exporter »), dans la
+// page choisie, puis relit les variables écrites.
 
 figma.showUI(__html__, { width: 380, height: 560, themeColors: true });
 
 const COLLECTION = 'DS-Studio';
-const PAGE = 'DS-Studio';
 const STYLE_BY_WEIGHT = {
   100: 'Thin',
   200: 'Extra Light',
@@ -44,79 +43,6 @@ const toRgb = (hex) => ({
 });
 const varName = (key) => key.replace('.', '/');
 const post = (msg) => figma.ui.postMessage(msg);
-
-// ---------- Import ----------
-async function resolveValue(value, depth) {
-  if (value && value.type === 'VARIABLE_ALIAS' && depth < 10) {
-    const target = await figma.variables.getVariableByIdAsync(value.id);
-    if (!target) return null;
-    const col = await figma.variables.getVariableCollectionByIdAsync(
-      target.variableCollectionId,
-    );
-    return resolveValue(target.valuesByMode[col.defaultModeId], depth + 1);
-  }
-  return value;
-}
-
-async function collectImport() {
-  const collections = await figma.variables.getLocalVariableCollectionsAsync();
-  const variables = [];
-  for (const v of await figma.variables.getLocalVariablesAsync()) {
-    if (!['COLOR', 'FLOAT', 'STRING'].includes(v.resolvedType)) continue;
-    const col = collections.find((c) => c.id === v.variableCollectionId);
-    if (!col || col.name === COLLECTION) continue; // ne pas réimporter nos propres variables
-    const raw = await resolveValue(v.valuesByMode[col.defaultModeId], 0);
-    if (raw === null || raw === undefined) continue;
-    const value = v.resolvedType === 'COLOR' ? toHex(raw) : raw;
-    variables.push({
-      name: v.name.slice(0, 200),
-      collection: col.name.slice(0, 200),
-      type: v.resolvedType,
-      value,
-    });
-  }
-  const paintStyles = [];
-  for (const s of await figma.getLocalPaintStylesAsync()) {
-    const p = s.paints[0];
-    if (p && p.type === 'SOLID')
-      paintStyles.push({ name: s.name.slice(0, 200), hex: toHex(p.color) });
-  }
-  const textStyles = [];
-  for (const s of await figma.getLocalTextStylesAsync())
-    textStyles.push({
-      name: s.name.slice(0, 200),
-      fontFamily: s.fontName.family,
-      fontStyle: s.fontName.style,
-      fontSize: s.fontSize,
-    });
-  const images = [];
-  for (const node of figma.currentPage.selection.slice(0, 12)) {
-    if (!('exportAsync' in node)) continue;
-    let bytes = await node.exportAsync({
-      format: 'PNG',
-      constraint: { type: 'SCALE', value: 2 },
-    });
-    if (bytes.length > 2900000)
-      bytes = await node.exportAsync({
-        format: 'PNG',
-        constraint: { type: 'SCALE', value: 1 },
-      });
-    if (bytes.length > 2900000) continue;
-    images.push({
-      name: node.name.slice(0, 200),
-      width: Math.round(node.width),
-      height: Math.round(node.height),
-      png: figma.base64Encode(bytes),
-    });
-  }
-  return {
-    fileName: figma.root.name.slice(0, 200),
-    variables,
-    paintStyles,
-    textStyles,
-    images,
-  };
-}
 
 // ---------- Export : variables ----------
 function tokenType(token) {
@@ -343,56 +269,6 @@ async function build(node, tokens, vars, ctx, target) {
   return frame;
 }
 
-async function applyExport(data, previewTokensJson) {
-  if (JSON.stringify(data.tokens) !== previewTokensJson)
-    throw new Error(
-      'Les tokens ont changé depuis la prévisualisation. Relancez « Prévisualiser ».',
-    );
-  post({ type: 'progress', message: 'Variables…' });
-  const { byKey } = await applyVariables(data.tokens);
-  let page = figma.root.children.find((p) => p.name === PAGE);
-  if (!page) {
-    page = figma.createPage();
-    page.name = PAGE;
-  }
-  await page.loadAsync();
-  const created = [];
-  let x = 0;
-  for (const screen of data.screens) {
-    post({ type: 'progress', message: 'Écran ' + screen.name + '…' });
-    const old = page.children.find((n) => n.name === screen.name);
-    const frame = await build(screen.root, data.tokens, byKey);
-    frame.clipsContent = true;
-    page.appendChild(frame);
-    if (old) {
-      frame.x = old.x;
-      frame.y = old.y;
-      old.remove();
-    } else {
-      const right = page.children.reduce(
-        (m, n) => (n === frame ? m : Math.max(m, n.x + n.width)),
-        -200,
-      );
-      frame.x = Math.max(x, right + 200);
-      frame.y = 0;
-    }
-    x = frame.x + frame.width + 200;
-    created.push(frame);
-  }
-  await figma.setCurrentPageAsync(page);
-  figma.viewport.scrollAndZoomIntoView(created);
-  // Relecture : les valeurs des variables doivent correspondre aux tokens.
-  const check = await previewExport(data);
-  const mismatched = check.rows
-    .filter((r) => r.action !== '=')
-    .map((r) => r.name);
-  return {
-    screens: created.length,
-    variables: Object.keys(byKey).length,
-    mismatched,
-  };
-}
-
 // ---------- Lien direct : DS-Studio commande, le plugin ouvert exécute ----------
 function liveInfo() {
   return {
@@ -422,12 +298,21 @@ async function runCommand(command) {
 
 // ---------- Export natif : composants, component sets, instances ----------
 const KEY = 'dsStudioKey';
-function findByKey(page, type, key) {
-  return page.findOne((n) => n.type === type && n.getPluginData(KEY) === key);
+// Identifiant stocké côté app d'abord, pluginData ensuite (nœud copié, app réinstallée…).
+async function findByKey(ctx, type, key) {
+  const id = ctx.nodes[key];
+  if (id) {
+    const node = await figma.getNodeByIdAsync(id);
+    if (node && node.type === type && node.getPluginData(KEY) === key)
+      return node;
+  }
+  return ctx.page.findOne(
+    (n) => n.type === type && n.getPluginData(KEY) === key,
+  );
 }
 async function upsertComponent(def, tokens, vars, ctx) {
   const root = Object.assign({}, def.root, { component: undefined });
-  let comp = findByKey(ctx.page, 'COMPONENT', def.key);
+  let comp = await findByKey(ctx, 'COMPONENT', def.key);
   if (comp) ctx.updated++;
   else {
     comp = figma.createComponent();
@@ -440,6 +325,7 @@ async function upsertComponent(def, tokens, vars, ctx) {
   await build(root, tokens, vars, ctx, comp);
   comp.name = def.variant || def.name;
   ctx.components[def.key] = comp;
+  ctx.touched[def.key] = comp.id;
   if (def.set) {
     ctx.sets[def.set] = ctx.sets[def.set] || [];
     if (!ctx.sets[def.set].includes(comp)) ctx.sets[def.set].push(comp);
@@ -466,7 +352,7 @@ async function instanceFor(node, tokens, vars, ctx) {
   // Composant déjà exporté (ce passage ou un précédent), sinon créé maintenant.
   const comp =
     ctx.components[ref.key] ||
-    findByKey(ctx.page, 'COMPONENT', ref.key) ||
+    (await findByKey(ctx, 'COMPONENT', ref.key)) ||
     (await upsertComponent(
       Object.assign({}, ref, { root: node }),
       tokens,
@@ -484,10 +370,10 @@ async function instanceFor(node, tokens, vars, ctx) {
     instance.resize(Math.max(1, node.w), Math.max(1, node.h));
   return instance;
 }
-function upsertSets(ctx) {
+async function upsertSets(ctx) {
   for (const name of Object.keys(ctx.sets)) {
     const members = ctx.sets[name];
-    let set = findByKey(ctx.page, 'COMPONENT_SET', 'set:' + name);
+    let set = await findByKey(ctx, 'COMPONENT_SET', 'set:' + name);
     if (!set) {
       set = figma.combineAsVariants(members, ctx.page);
       set.setPluginData(KEY, 'set:' + name);
@@ -498,6 +384,7 @@ function upsertSets(ctx) {
     }
     ctx.placed = ctx.placed.filter((n) => !members.includes(n));
     set.name = name;
+    ctx.touched['set:' + name] = set.id;
     set.layoutMode = 'HORIZONTAL';
     set.primaryAxisSizingMode = 'AUTO';
     set.counterAxisSizingMode = 'AUTO';
@@ -528,6 +415,8 @@ async function exportNative(data) {
   const { byKey } = await applyVariables(data.tokens);
   const ctx = {
     page,
+    nodes: data.nodes || {},
+    touched: {},
     components: {},
     sets: {},
     placed: [],
@@ -540,12 +429,13 @@ async function exportNative(data) {
   for (const screen of data.screens) {
     post({ type: 'progress', message: 'Écran ' + screen.name + '…' });
     const key = 'screen:' + screen.key;
-    const old = findByKey(page, 'FRAME', key);
+    const old = await findByKey(ctx, 'FRAME', key);
     const frame = await build(screen.root, data.tokens, byKey, ctx);
     frame.name = screen.name;
     frame.clipsContent = true;
     frame.setPluginData(KEY, key);
     page.appendChild(frame);
+    ctx.touched[key] = frame.id;
     if (old) {
       frame.x = old.x;
       frame.y = old.y;
@@ -556,7 +446,7 @@ async function exportNative(data) {
       ctx.created++;
     }
   }
-  upsertSets(ctx);
+  await upsertSets(ctx);
   place(page, ctx.placed);
   await figma.setCurrentPageAsync(page);
   // Relecture : les variables écrites doivent correspondre aux tokens envoyés.
@@ -571,6 +461,7 @@ async function exportNative(data) {
     screens: data.screens.length,
     variables: Object.keys(byKey).length,
     mismatched: check.rows.filter((r) => r.action !== '=').map((r) => r.name),
+    nodes: ctx.touched,
   };
 }
 
@@ -604,15 +495,6 @@ figma.ui.onmessage = async (msg) => {
     } else if (msg.type === 'save-settings') {
       await figma.clientStorage.setAsync('pair', msg.pair);
       await figma.clientStorage.setAsync('server', msg.server);
-    } else if (msg.type === 'collect-import') {
-      post({ type: 'import-data', payload: await collectImport() });
-    } else if (msg.type === 'preview-export') {
-      post({ type: 'export-preview', ...(await previewExport(msg.data)) });
-    } else if (msg.type === 'apply-export') {
-      post({
-        type: 'export-done',
-        summary: await applyExport(msg.data, msg.previewTokens),
-      });
     } else if (msg.type === 'notify') {
       figma.notify(msg.message);
     }

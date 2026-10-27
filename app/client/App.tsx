@@ -12,7 +12,6 @@ import {
 import type { DSComponent } from '../shared/component.js';
 import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
-import FigmaPanel from './FigmaPanel.js';
 import FigmaExportButton from './FigmaExportButton.js';
 import ImageImport from './ImageImport.js';
 import { useTokenDraft } from './useTokenDraft.js';
@@ -844,13 +843,6 @@ export default function App() {
 
             <section className="settings-section">
               <ProjectBrief />
-            </section>
-            <section className="settings-section">
-              <FigmaPanel
-                tokens={state.tokens}
-                revision={state.revision}
-                onProposal={setProposal}
-              />
             </section>
             <section className="settings-section">
               <button

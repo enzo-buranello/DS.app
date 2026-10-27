@@ -714,8 +714,8 @@ async function fakePlugin(page: Page) {
   const info = {
     file: { name: 'Kit UI', key: 'AbCdEf123456' },
     pages: [
-      { id: 'p1', name: 'Composants' },
-      { id: 'p2', name: 'Vide' },
+      { id: '0:1', name: 'Composants' },
+      { id: '0:2', name: 'Écrans' },
     ],
   };
   const exports: Record<string, any>[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -725,8 +725,8 @@ async function fakePlugin(page: Page) {
     args: {
       pageId: string;
       kind?: string;
-      definitions?: unknown[];
-      screens?: unknown[];
+      definitions?: { key: string }[];
+      screens?: { key: string }[];
     };
   }) => {
     if (
@@ -751,6 +751,13 @@ async function fakePlugin(page: Page) {
         screens: cmd.args.screens!.length,
         variables: 18,
         mismatched: [],
+        // Ids Figma simulés : l'app les conserve et les renvoie au prochain export.
+        nodes: Object.fromEntries(
+          [...cmd.args.definitions!, ...cmd.args.screens!].map((d, i) => [
+            d.key,
+            `9:${i}`,
+          ]),
+        ),
       };
     }
     throw new Error('Commande inconnue.');
@@ -842,113 +849,140 @@ test('réglages d’aperçu : dans la fenêtre d’aperçu seulement, repliables
   await expect(page.locator('iframe')).toHaveAttribute('width', '430');
 });
 
-test('export Figma : états, Design system, aperçu actuel, page modifiable, ré-export', async ({
+test('export Figma : OAuth, fichier › page, plugin, DS, aperçu, ré-export, déconnexion', async ({
   page,
+  context,
 }) => {
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   const header = page.getByRole('banner');
-  const open = async (scope: import('@playwright/test').Locator) => {
-    await scope.getByRole('button', { name: 'Exporter' }).click();
-    return page.getByRole('dialog', { name: 'Exporter vers Figma' });
+  const menu = page.getByRole('dialog', { name: 'Exporter vers Figma' });
+  const open = async (scope = header) => {
+    if (!(await menu.isVisible()))
+      await scope.getByRole('button', { name: 'Exporter' }).click();
+    return menu;
   };
-  // Plugin non lancé : message clair, choix désactivés, Échap rend le focus.
-  let menu = await open(header);
-  await expect(menu).toContainText('Plugin Figma non lancé');
+  // 1. Non connecté : connexion OAuth dans un nouvel onglet (faux Figma local).
+  await open();
+  await expect(menu).toContainText('Non connecté à Figma');
+  const [tab] = await Promise.all([
+    context.waitForEvent('page'),
+    menu.getByRole('link', { name: 'Se connecter à Figma' }).click(),
+  ]);
+  await expect(tab.getByText('Figma connecté')).toBeVisible();
+  await tab.close();
+  await expect(menu).toContainText('Connecté : Camille');
+
+  // 2. Fichier par son lien, puis page ; plugin pas encore lancé.
+  const link = menu.getByLabel('Fichier Figma (lien)');
+  await link.fill('https://www.figma.com/design/ViewOnly12345/Lecture');
+  await menu.getByRole('button', { name: 'Charger' }).click();
+  await expect(menu).toContainText('Droits insuffisants');
+  await link.fill('https://www.figma.com/design/AbCdEf123456/Kit-UI');
+  await menu.getByRole('button', { name: 'Charger' }).click();
+  const pageSelect = menu.getByRole('combobox', { name: /Page · Kit UI/ });
+  await pageSelect.selectOption({ label: 'Composants' });
+  const { pairCode } = await (await page.request.get('/api/figma')).json();
+  await expect(menu).toContainText('Plugin non lancé');
+  await expect(menu.locator('.pair-code')).toHaveText(pairCode);
   await expect(
     menu.getByRole('button', { name: 'Design system' }),
   ).toBeDisabled();
-  await page.keyboard.press('Escape');
-  await expect(menu).toBeHidden();
-  await expect(header.getByRole('button', { name: 'Exporter' })).toBeFocused();
 
   // Plugin lancé avec un mauvais code : « non connecté ».
   await page.request.post('/plugin/figma/live', {
     headers: { Authorization: 'Bearer mauvais-code' },
     data: { file: { name: 'x', key: null }, pages: [] },
   });
-  menu = await open(header);
-  await expect(menu).toContainText('non connecté');
-  await page.keyboard.press('Escape');
+  await expect(menu).toContainText('Plugin lancé mais non connecté');
 
+  // 3. Plugin lancé sur le bon fichier : export du Design system.
   const plugin = await fakePlugin(page);
-  const csrf = (await (await page.request.get('/api/bootstrap')).json()).csrf;
-  await page.request.post('/api/figma/selection', {
-    headers: { 'x-ds-studio': csrf },
-    data: { fileUrl: '', pageId: 'p1' },
-  });
-  menu = await open(header);
-  const target = menu.getByRole('combobox', { name: /Page Figma/ });
-  await expect(target).toHaveValue('p1');
-  await menu.getByRole('button', { name: 'Design system' }).click();
+  const ds = menu.getByRole('button', { name: 'Design system' });
+  await expect(ds).toBeEnabled();
+  await ds.click();
   const toast = page.getByRole('status').filter({ hasText: 'Export Figma' });
   await expect(toast).toContainText('« Composants »');
   await expect(
     toast.getByRole('link', { name: 'Ouvrir la page dans Figma' }),
   ).toHaveAttribute(
     'href',
-    'https://www.figma.com/design/AbCdEf123456/?node-id=p1',
+    'https://www.figma.com/design/AbCdEf123456/?node-id=0-1',
   );
-  const ds = plugin.exports[0];
-  expect(ds.kind).toBe('ds');
-  expect(ds.tokens['color.brand'].$type).toBe('color');
-  const keys = ds.definitions.map((d: { key: string }) => d.key);
+  const first = plugin.exports[0];
+  expect(first.kind).toBe('ds');
+  expect(first.pageId).toBe('0:1');
+  expect(first.nodes).toEqual({});
+  expect(first.tokens['color.brand'].$type).toBe('color');
+  const keys = first.definitions.map((d: { key: string }) => d.key);
   expect(keys).toEqual(
     expect.arrayContaining([
       'Button|Variante=Principal, État=Défaut',
-      'Button|Variante=Secondaire, État=Défaut',
       'Button|Variante=Danger, État=Défaut',
-      'Button|Variante=Principal, État=Désactivé',
       'BookingCard',
       'Form',
       'Navigation',
     ]),
   );
-  const buttons = ds.definitions.filter(
-    (d: { set: string }) => d.set === 'Button',
-  );
-  expect(buttons).toHaveLength(4);
-  expect(buttons[0].root.layout.mode).toBe('HORIZONTAL');
-  // Le bouton de la carte reste un composant référencé (futur instance).
-  const card = ds.definitions.find(
+  // Le bouton de la carte reste une référence (instance dans Figma).
+  const card = first.definitions.find(
     (d: { key: string }) => d.key === 'BookingCard',
   );
   expect(JSON.stringify(card.root)).toContain(
     '"key":"Button|Variante=Principal, État=Défaut"',
   );
 
-  // Ré-export : même cible, signalé comme mise à jour.
-  menu = await open(header);
+  // 4. Ré-export : les identifiants conservés par l'app sont renvoyés au plugin.
+  await open();
   await menu.getByRole('button', { name: 'Design system' }).click();
   await expect(toast).toContainText(
-    `0 créé(s), ${ds.definitions.length} mis à jour`,
+    `0 créé(s), ${first.definitions.length} mis à jour`,
+  );
+  expect(plugin.exports[1].nodes.BookingCard).toBe(
+    `9:${keys.indexOf('BookingCard')}`,
   );
 
-  // Aperçu : bouton dans la barre d'aperçu, page modifiée avant envoi.
+  // 5. Aperçu actuel depuis la barre d'aperçu, vers une autre page.
   await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
-  const previewBar = page.locator('.stage-bar');
-  menu = await open(previewBar);
-  await menu.getByRole('combobox', { name: /Page Figma/ }).selectOption('p2');
+  await open(page.locator('.stage-bar'));
+  await menu
+    .getByRole('combobox', { name: /Page · Kit UI/ })
+    .selectOption({ label: 'Écrans' });
   await menu.getByRole('button', { name: 'Aperçu actuel' }).click();
-  await expect(toast).toContainText('« Vide »');
+  await expect(toast).toContainText('« Écrans »');
   const preview = plugin.exports.at(-1)!;
   expect(preview.kind).toBe('preview');
+  expect(preview.pageId).toBe('0:2');
   expect(preview.screens[0].key).toBe('cards:375');
-  expect(preview.screens[0].name).toBe('DS-Studio / Découvrir / 375');
   expect(JSON.stringify(preview.screens[0].root)).toContain(
     '"key":"BookingCard"',
   );
 
-  // Page supprimée côté Figma entre-temps : erreur claire.
-  plugin.missing.add('p2');
-  menu = await open(previewBar);
-  await menu.getByRole('combobox', { name: /Page Figma/ }).selectOption('p2');
-  await menu.getByRole('button', { name: 'Aperçu actuel' }).click();
-  await expect(page.locator('.dock').getByRole('alert')).toContainText(
-    'Figma : Page introuvable',
+  // 6. Dernier choix mémorisé après rechargement.
+  await page.reload();
+  await open();
+  await expect(menu.getByLabel('Fichier Figma (lien)')).toHaveValue(
+    'https://www.figma.com/design/AbCdEf123456/Kit-UI',
   );
+  await expect(
+    menu.getByRole('combobox', { name: /Page · Kit UI/ }),
+  ).toHaveValue('0:2');
+
+  // 7. Plugin ouvert sur un autre fichier : bloqué avec un message clair.
+  plugin.info.file = { name: 'Autre fichier', key: 'Zzzzzzzzzz99' };
+  await expect(menu).toContainText('Fichier non ouvert dans Figma');
+  await expect(
+    menu.getByRole('button', { name: 'Design system' }),
+  ).toBeDisabled();
   await plugin.stop();
+
+  // 8. Déconnexion.
+  await menu.getByRole('button', { name: 'Se déconnecter' }).click();
+  await expect(menu).toContainText('Non connecté à Figma');
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(header.getByRole('button', { name: 'Exporter' })).toBeFocused();
 });
 
 const BUTTON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48" viewBox="0 0 160 48">

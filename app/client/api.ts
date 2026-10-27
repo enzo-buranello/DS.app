@@ -1,7 +1,6 @@
 import type { State, Proposal } from '../shared/model.js';
 export interface Bootstrap {
   csrf: string;
-  figma: { label: string; connected: boolean };
   agents: { id: string; available: boolean; detail: string }[];
 }
 let csrf = '';

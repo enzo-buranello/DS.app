@@ -125,6 +125,8 @@ function mockFigma() {
       return p;
     },
     createFrame: () => node('FRAME'),
+    getNodeByIdAsync: async (id: string): Promise<Any> =>
+      [page, ...page.findAll(() => true)].find((n: Any) => n.id === id) ?? null,
     createComponent: () => node('COMPONENT'),
     combineAsVariants(members: Any[], parent: Any) {
       const set = node('COMPONENT_SET');
@@ -182,127 +184,6 @@ async function run(figma: Any, msg: Any, messages: Any[]) {
   await figma.ui.onmessage(msg);
   return messages.slice(before);
 }
-
-test('plugin : prévisualisation, application, liaisons et relecture', async () => {
-  const { figma, messages, vars } = mockFigma();
-  vm.runInNewContext(code, { figma, __html__: '', console });
-  const text = (characters: string, fontSize: number, color: Any) => ({
-    name: characters,
-    x: 0,
-    y: 0,
-    w: 100,
-    h: 20,
-    children: [],
-    text: {
-      characters,
-      fontFamily: 'system-ui',
-      fontWeight: 700,
-      fontSize,
-      fontSizeToken: 'font.body',
-      lineHeight: 20,
-      letterSpacing: 0,
-      align: 'LEFT',
-      color,
-      uppercase: false,
-    },
-  });
-  const data = {
-    tokens,
-    screens: [
-      {
-        name: 'DS-Studio / Découvrir / 375',
-        width: 375,
-        root: {
-          name: 'DS-Studio / Découvrir / 375',
-          x: 0,
-          y: 0,
-          w: 375,
-          h: 400,
-          fill: { hex: '#F3F5FA', opacity: 1, token: 'color.canvas' },
-          children: [
-            {
-              name: 'ds-button',
-              x: 24,
-              y: 40,
-              w: 120,
-              h: 44,
-              fill: { hex: '#3154C4', opacity: 1, token: 'color.brand' },
-              radius: tokens['radius.control'].$value,
-              radiusToken: 'radius.control',
-              layout: {
-                mode: 'HORIZONTAL',
-                gap: 8,
-                padding: [12, 16, 12, 16],
-                paddingTokens: [null, null, null, null],
-                primary: 'CENTER',
-                counter: 'CENTER',
-              },
-              children: [
-                text('Réserver', tokens['font.body'].$value, {
-                  hex: '#FFFFFF',
-                  opacity: 1,
-                  token: 'color.onBrand',
-                }),
-              ],
-            },
-          ],
-        },
-      },
-    ],
-  };
-  const preview = (
-    await run(figma, { type: 'preview-export', data }, messages)
-  )[0];
-  assert.equal(preview.type, 'export-preview', JSON.stringify(preview));
-  assert.equal(
-    preview.rows.filter((r: Any) => r.action === 'créer').length,
-    Object.keys(tokens).length,
-  );
-  assert.equal(vars.length, 0, 'la prévisualisation n’écrit rien');
-
-  // Refus si les tokens ont changé depuis la prévisualisation.
-  const stale = await run(
-    figma,
-    { type: 'apply-export', data, previewTokens: '{}' },
-    messages,
-  );
-  assert.equal(stale.at(-1)!.type, 'error');
-  assert.equal(vars.length, 0);
-
-  const done = await run(
-    figma,
-    { type: 'apply-export', data, previewTokens: JSON.stringify(tokens) },
-    messages,
-  );
-  const summary = done.at(-1)!;
-  assert.equal(summary.type, 'export-done', JSON.stringify(summary));
-  assert.equal(
-    summary.summary.mismatched.length,
-    0,
-    summary.summary.mismatched.join(),
-  );
-  assert.equal(vars.length, Object.keys(tokens).length);
-  const page = figma.root.children.find((p: Any) => p.name === 'DS-Studio');
-  const frame = page.children[0];
-  assert.equal(frame.name, 'DS-Studio / Découvrir / 375');
-  assert.equal(frame.fills[0].boundVariables.color, 'color/canvas');
-  const button = frame.children[0];
-  assert.equal(button.layoutMode, 'HORIZONTAL');
-  assert.equal(button.bound.topLeftRadius, 'radius/control');
-  const label = button.children[0];
-  assert.equal(label.characters, 'Réserver');
-  assert.equal(label.fontName.family, 'Inter');
-  assert.equal(label.bound.fontSize, 'font/body');
-
-  // Second export : l'écran est remplacé, pas dupliqué ; les variables sont réutilisées.
-  await run(
-    figma,
-    { type: 'apply-export', data, previewTokens: JSON.stringify(tokens) },
-    messages,
-  );
-  assert.equal(page.children.length, 1);
-  assert.equal(vars.length, Object.keys(tokens).length);
-});
 
 test('plugin : lien direct, fichier ouvert et pages annoncés', async () => {
   const { figma, messages } = mockFigma();
@@ -412,6 +293,8 @@ test('plugin : export natif DS, component sets, instances et ré-export sans dou
       ]),
     },
   ];
+  // Correspondances conservées côté app entre deux exports.
+  let known: Record<string, string> = {};
   const exportOnce = async () => {
     const [reply] = await run(
       figma,
@@ -420,13 +303,22 @@ test('plugin : export natif DS, component sets, instances et ré-export sans dou
         type: 'command',
         command: {
           type: 'export',
-          args: { pageId: 'p1', kind: 'ds', tokens, definitions, screens: [] },
+          args: {
+            pageId: 'p1',
+            kind: 'ds',
+            tokens,
+            definitions,
+            screens: [],
+            nodes: known,
+          },
         },
       },
       messages,
     ).then((r) => r.filter((m: Any) => m.type === 'reply'));
     assert.equal(reply.ok, true, reply.error);
-    return JSON.parse(JSON.stringify(reply.data));
+    const data = JSON.parse(JSON.stringify(reply.data));
+    known = { ...known, ...data.nodes };
+    return data;
   };
   const first = await exportOnce();
   assert.deepEqual(
@@ -454,7 +346,11 @@ test('plugin : export natif DS, component sets, instances et ré-export sans dou
   assert.equal(inner.mainComponent, button);
   assert.equal(inner.children[0].characters, 'Réserver une place');
 
-  // Ré-export : mêmes nœuds mis à jour, aucun doublon.
+  assert.equal(first.nodes['Button|Variante=Principal'], button.id);
+  assert.equal(first.nodes['set:Button'], set.id);
+  // Ré-export : mêmes nœuds mis à jour, aucun doublon. Le composant renommé
+  // dans Figma est retrouvé par son identifiant stocké.
+  button.name = 'Renommé dans Figma';
   definitions[0].root.children = [leaf('Action modifiée')];
   const second = await exportOnce();
   assert.deepEqual(

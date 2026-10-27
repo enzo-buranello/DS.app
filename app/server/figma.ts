@@ -4,15 +4,7 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { atomicWrite, readPrivate } from './files.js';
 import { StudioError } from './store.js';
-import {
-  figmaImportSchema,
-  liveInfoSchema,
-  type LiveInfo,
-  screensSchema,
-  type FigmaExport,
-  type StoredImport,
-} from '../shared/figma.js';
-import type { Tokens } from '../shared/model.js';
+import { liveInfoSchema, type LiveInfo } from '../shared/figma.js';
 import { z } from 'zod';
 
 const LIVE_TIMEOUT = 5_000;
@@ -24,12 +16,29 @@ const resultSchema = z
     error: z.string().max(500).optional(),
   })
   .strict();
+// Dernier espace cible choisi dans « Exporter » (fichier puis page).
 export const selectionSchema = z
   .object({
     fileUrl: z.string().max(500),
+    fileKey: z.string().max(64),
+    fileName: z.string().max(200),
     pageId: z.string().max(80),
+    pageName: z.string().max(200),
   })
   .strict();
+export type Selection = z.infer<typeof selectionSchema>;
+const emptySelection: Selection = {
+  fileUrl: '',
+  fileKey: '',
+  fileName: '',
+  pageId: '',
+  pageName: '',
+};
+// Correspondances côté app : fichier → clé DS-Studio → id du nœud Figma.
+const mappingSchema = z.record(
+  z.string().max(64),
+  z.record(z.string().max(200), z.string().max(80)),
+);
 type Command = {
   id: string;
   type: 'export';
@@ -38,8 +47,8 @@ type Command = {
 
 // Pont local avec le plugin Figma « DS-Studio Bridge ».
 // - Le plugin s'authentifie par un code d'appairage affiché dans l'app (Bearer).
-// - Aucune écriture Figma ici : le plugin dessine seulement après un clic humain.
-// - L'import ne modifie aucun token : il alimente une proposition soumise au diff.
+// - Tant qu'il est ouvert, il s'annonce (fichier, pages) et exécute les exports
+//   demandés par un clic dans DS-Studio ; rien n'est écrit dans Figma sinon.
 export class FigmaBridge {
   private dir: string;
   private token = '';
@@ -62,7 +71,7 @@ export class FigmaBridge {
     return path.join(this.dir, name);
   }
   async init() {
-    await fs.mkdir(path.join(this.dir, 'images'), {
+    await fs.mkdir(this.dir, {
       recursive: true,
       mode: 0o700,
     });
@@ -135,86 +144,36 @@ export class FigmaBridge {
         JSON.parse(await readPrivate(this.file('selection.json'), 10_000)),
       );
     } catch {
-      return { fileUrl: '', pageId: '' };
+      return emptySelection;
     }
   }
-  async saveSelection(body: unknown) {
-    const selection = selectionSchema.parse(body);
-    await atomicWrite(this.file('selection.json'), JSON.stringify(selection));
+  async saveSelection(selection: Selection) {
+    await atomicWrite(
+      this.file('selection.json'),
+      JSON.stringify(selectionSchema.parse(selection)),
+    );
     return selection;
   }
-  async lastImport(): Promise<StoredImport | null> {
+  private async mappings() {
     try {
-      return JSON.parse(await readPrivate(this.file('import.json'), 5_000_000));
+      return mappingSchema.parse(
+        JSON.parse(await readPrivate(this.file('exports.json'), 2_000_000)),
+      );
     } catch {
-      return null;
+      return {};
     }
   }
-  async lastExport(): Promise<FigmaExport | null> {
-    try {
-      return JSON.parse(await readPrivate(this.file('export.json'), 5_000_000));
-    } catch {
-      return null;
-    }
+  /** Ids Figma déjà connus pour ce fichier (clé DS-Studio → id de nœud). */
+  async mapping(fileKey: string) {
+    return (await this.mappings())[fileKey] ?? {};
   }
-  async image(id: string) {
-    if (!/^[0-9a-f-]{36}$/.test(id))
-      throw new StudioError('Image inconnue.', 404);
-    return fs.readFile(path.join(this.dir, 'images', `${id}.png`));
+  async saveMapping(fileKey: string, nodes: Record<string, string>) {
+    const all = await this.mappings();
+    all[fileKey] = { ...all[fileKey], ...nodes };
+    await atomicWrite(this.file('exports.json'), JSON.stringify(all));
   }
-  async saveScreens(body: unknown, tokens: Tokens) {
-    const { screens } = screensSchema.parse(body);
-    const data: FigmaExport = {
-      date: new Date().toISOString(),
-      tokens,
-      screens,
-    };
-    await atomicWrite(this.file('export.json'), JSON.stringify(data));
-    return { date: data.date, screens: screens.length };
-  }
-  private async saveImport(body: unknown) {
-    const data = figmaImportSchema.parse(body);
-    // Les anciennes images sont remplacées : l'import reflète la dernière sélection.
-    const folder = path.join(this.dir, 'images');
-    for (const f of await fs.readdir(folder))
-      if (f.endsWith('.png'))
-        await fs.unlink(path.join(folder, f)).catch(() => {});
-    const images = [];
-    for (const img of data.images) {
-      const id = randomUUID();
-      const buffer = Buffer.from(img.png, 'base64');
-      // Signature PNG obligatoire : rien d'autre n'est servi par /api/figma/image.
-      if (buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a')
-        throw new StudioError('Image refusée : PNG attendu.');
-      await fs.writeFile(path.join(folder, `${id}.png`), buffer, {
-        mode: 0o600,
-      });
-      images.push({ id, name: img.name, width: img.width, height: img.height });
-    }
-    const stored: StoredImport = {
-      date: new Date().toISOString(),
-      fileName: data.fileName,
-      variables: data.variables,
-      paintStyles: data.paintStyles,
-      textStyles: data.textStyles,
-      images,
-    };
-    await atomicWrite(this.file('import.json'), JSON.stringify(stored));
-    return {
-      variables: stored.variables.length,
-      paintStyles: stored.paintStyles.length,
-      textStyles: stored.textStyles.length,
-      images: images.length,
-    };
-  }
-
   /** Routes /plugin/figma/* appelées par l'iframe du plugin (origine « null »). */
-  async handle(
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-    url: URL,
-    tokens: () => Tokens,
-  ) {
+  async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
     // L'iframe d'un plugin Figma a l'origine opaque « null ». Rien d'autre n'est accepté.
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== 'null')
@@ -247,16 +206,6 @@ export class FigmaBridge {
     const route = url.pathname.slice('/plugin/figma/'.length);
     if (req.method === 'GET' && route === 'ping')
       return send(200, { ok: true, app: 'DS-Studio' });
-    if (req.method === 'GET' && route === 'export') {
-      const data = await this.lastExport();
-      if (!data)
-        throw new StudioError(
-          'Aucun export préparé. Dans DS-Studio, cliquez « Préparer l’export Figma ».',
-          404,
-        );
-      // Les tokens envoyés sont ceux du disque à l'instant de la lecture.
-      return send(200, { ...data, tokens: tokens() });
-    }
     if (req.method !== 'POST') throw new StudioError('Route inconnue.', 404);
     if (!req.headers['content-type']?.startsWith('application/json'))
       throw new StudioError('JSON requis.', 415);
@@ -274,7 +223,6 @@ export class FigmaBridge {
     } catch {
       throw new StudioError('JSON invalide.');
     }
-    if (route === 'import') return send(200, await this.saveImport(body));
     if (route === 'live') {
       this.live = { ...liveInfoSchema.parse(body), seen: Date.now() };
       return send(200, { command: this.commands.shift() ?? null });

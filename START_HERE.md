@@ -16,7 +16,8 @@ composants du catalogue et de l’iframe, réouverture et annulation sélective.
 Séparez intention, code écrit et preuve exécutée. Indiquez IMPLEMENTED, TESTED,
 PARTIAL ou NOT IMPLEMENTED en précisant la plateforme et le périmètre du test.
 Ne prétendez pas que Claude, Gemini ou Figma fonctionnent en vous fondant sur
-une interface TypeScript ou un document. Aucun accès Figma n’est configuré ici.
+une interface TypeScript ou un document. L’export Figma exige l’app OAuth de
+l’étudiant (clés dans `.env`, jamais commitées) : voir docs/FIGMA.md.
 
 Le chat embarqué Codex ne possède pas d’outils. N’ouvrez pas un MCP Figma ou
 un shell parallèle pour rendre une démonstration plus facile. Une future écriture

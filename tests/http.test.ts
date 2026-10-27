@@ -76,7 +76,6 @@ async function fixture(
 test('API manuelle complète sans IA ni Figma, export égal au disque', async (t) => {
   const { origin, post, store } = await fixture(t);
   const boot = await (await fetch(origin + '/api/bootstrap')).json();
-  assert.equal(boot.figma.connected, false);
   const proposed = await post('proposals', {
     revision: 0,
     changes: [{ key: 'color.brand', value: '#112233' }],

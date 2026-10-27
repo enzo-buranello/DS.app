@@ -3,12 +3,32 @@ import type { Tokens } from '../shared/model.js';
 import { request } from './api.js';
 import { captureDesignSystem, captureScreen } from './figmaExport.js';
 
-interface Live {
-  connected: boolean;
-  unpaired: boolean;
-  file: { name: string; key: string | null } | null;
+interface Status {
+  pairCode: string;
+  live: {
+    connected: boolean;
+    unpaired: boolean;
+    file: { name: string; key: string | null } | null;
+  };
+  account: {
+    configured: boolean;
+    connected: boolean;
+    user: { handle: string; email: string } | null;
+    storage: 'keychain' | 'file';
+  };
+  selection: {
+    fileUrl: string;
+    fileKey: string;
+    fileName: string;
+    pageId: string;
+    pageName: string;
+  };
+}
+interface FileInfo {
+  fileKey: string;
+  name: string;
+  role: string;
   pages: { id: string; name: string }[];
-  selection: { fileUrl: string; pageId: string };
 }
 interface Summary {
   pageName: string;
@@ -18,10 +38,11 @@ interface Summary {
   sets: number;
   screens: number;
   mismatched: string[];
-  link: string | null;
+  link: string;
 }
 
-// Export natif vers la page Figma choisie, via le plugin ouvert (lien direct).
+// Seul point d'entrée Figma de l'app : connexion OAuth, choix fichier › page,
+// puis écriture native par le plugin local ouvert sur ce fichier.
 export default function FigmaExportButton({
   tokens,
   scenario,
@@ -38,28 +59,50 @@ export default function FigmaExportButton({
   onError: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [live, setLive] = useState<Live>();
+  const [status, setStatus] = useState<Status>();
+  const [fileUrl, setFileUrl] = useState('');
+  const [file, setFile] = useState<FileInfo>();
   const [pageId, setPageId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'' | 'file' | 'export'>('');
+  const [problem, setProblem] = useState('');
   const menuId = useId();
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
 
+  async function loadFile(url: string) {
+    setBusy('file');
+    setProblem('');
+    try {
+      const r = await request<FileInfo & { selection: Status['selection'] }>(
+        'figma/file',
+        { url },
+      );
+      setFile(r);
+      setPageId(r.selection.pageId);
+    } catch (e) {
+      setFile(undefined);
+      setProblem((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  }
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    let restored = false;
     const poll = () =>
-      request<Live>('figma/live')
+      request<Status>('figma')
         .then((next) => {
           if (!alive) return;
-          setLive(next);
-          setPageId((current) =>
-            next.pages.some((p) => p.id === current)
-              ? current
-              : next.pages.some((p) => p.id === next.selection.pageId)
-                ? next.selection.pageId
-                : '',
-          );
+          setStatus(next);
+          // Dernier choix mémorisé : fichier rechargé dès que le compte est connecté.
+          if (!restored && next.account.connected) {
+            restored = true;
+            if (next.selection.fileUrl) {
+              setFileUrl(next.selection.fileUrl);
+              void loadFile(next.selection.fileUrl);
+            }
+          }
         })
         .catch((e) => alive && onError((e as Error).message));
     void poll();
@@ -78,14 +121,7 @@ export default function FigmaExportButton({
     };
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape);
-    // Premier contrôle utilisable, sinon le menu lui-même (choix désactivés).
-    requestAnimationFrame(() =>
-      (
-        menu.current?.querySelector<HTMLElement>(
-          'select:not(:disabled), button:not(:disabled)',
-        ) ?? menu.current
-      )?.focus(),
-    );
+    requestAnimationFrame(() => menu.current?.focus());
     return () => {
       alive = false;
       clearInterval(timer);
@@ -95,7 +131,8 @@ export default function FigmaExportButton({
   }, [open]);
 
   async function run(kind: 'ds' | 'preview') {
-    setBusy(true);
+    setBusy('export');
+    setProblem('');
     try {
       const body =
         kind === 'ds'
@@ -105,14 +142,8 @@ export default function FigmaExportButton({
               definitions: await captureDesignSystem(tokens),
               screens: [],
             }
-          : await (async () => {
-              const screen = await captureScreen(
-                scenario,
-                scenarioLabel,
-                width,
-                tokens,
-              );
-              return {
+          : await captureScreen(scenario, scenarioLabel, width, tokens).then(
+              (screen) => ({
                 pageId,
                 kind,
                 definitions: [],
@@ -123,8 +154,8 @@ export default function FigmaExportButton({
                     root: screen.root,
                   },
                 ],
-              };
-            })();
+              }),
+            );
       const r = await request<Summary>('figma/export', body);
       const what =
         kind === 'ds'
@@ -140,21 +171,31 @@ export default function FigmaExportButton({
       setOpen(false);
       button.current?.focus();
     } catch (e) {
+      // Erreur visible dans le menu et dans la zone de messages (toast).
+      setProblem((e as Error).message);
       onError((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   }
 
-  const problem = !live
-    ? 'Recherche du plugin Figma…'
-    : live.unpaired
-      ? 'Plugin lancé mais non connecté : collez le code d’appairage dans le plugin.'
-      : !live.connected
-        ? 'Plugin Figma non lancé : ouvrez-le dans Figma Desktop.'
-        : !pageId
-          ? 'Choisissez la page Figma cible.'
+  const account = status?.account;
+  const live = status?.live;
+  const page = file?.pages.find((p) => p.id === pageId);
+  // Le plugin doit être lancé sur le fichier choisi, avec le bon code.
+  const pluginProblem = !file
+    ? ''
+    : live?.unpaired
+      ? 'Plugin lancé mais non connecté : collez ce code dans DS-Studio Bridge.'
+      : !live?.connected
+        ? `Plugin non lancé : ouvrez « ${file.name} » dans Figma Desktop, puis Plugins › Development › DS-Studio Bridge.`
+        : live.file &&
+            (live.file.key
+              ? live.file.key !== file.fileKey
+              : live.file.name !== file.name)
+          ? `Fichier non ouvert dans Figma : le plugin est lancé sur « ${live.file.name} », ouvrez « ${file.name} ».`
           : '';
+  const ready = !!page && !pluginProblem && file?.role !== 'viewer';
   return (
     <div className="export-anchor">
       <button
@@ -176,44 +217,150 @@ export default function FigmaExportButton({
           aria-label="Exporter vers Figma"
           tabIndex={-1}
         >
-          {live?.connected && (
-            <label className="field">
-              Page Figma · {live.file?.name}
-              <select
-                value={pageId}
-                onChange={(e) => setPageId(e.target.value)}
-              >
-                <option value="" disabled>
-                  Choisir une page
-                </option>
-                {live.pages.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {problem && (
-            <p className="export-problem" role="status">
-              {problem}
-            </p>
-          )}
-          <div className="export-choices">
-            <button disabled={!!problem || busy} onClick={() => void run('ds')}>
-              Design system
-            </button>
-            <button
-              disabled={!!problem || busy}
-              onClick={() => void run('preview')}
-            >
-              Aperçu actuel
-            </button>
-          </div>
-          {busy && (
+          {!account ? (
             <p className="token-hint" role="status">
-              Export en cours…
+              Chargement…
             </p>
+          ) : !account.configured ? (
+            <p className="export-problem" role="status">
+              Connexion Figma non configurée : renseignez FIGMA_CLIENT_ID et
+              FIGMA_CLIENT_SECRET dans .env, puis relancez DS-Studio.
+            </p>
+          ) : !account.connected ? (
+            <>
+              <p className="export-problem" role="status">
+                Non connecté à Figma.
+              </p>
+              <a
+                className="button-link"
+                href="/api/figma/oauth/start"
+                target="_blank"
+                rel="noopener"
+              >
+                Se connecter à Figma
+              </a>
+            </>
+          ) : (
+            <>
+              <div className="export-account">
+                <span>
+                  Connecté : <strong>{account.user?.handle}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void request('figma/logout', {})
+                      .then(() => {
+                        setFile(undefined);
+                        setStatus(
+                          (s) =>
+                            s && {
+                              ...s,
+                              account: {
+                                ...s.account,
+                                connected: false,
+                                user: null,
+                              },
+                            },
+                        );
+                      })
+                      .catch((e) => onError((e as Error).message))
+                  }
+                >
+                  Se déconnecter
+                </button>
+              </div>
+              <form
+                className="export-file"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void loadFile(fileUrl);
+                }}
+              >
+                <label className="field">
+                  Fichier Figma (lien)
+                  <input
+                    type="url"
+                    value={fileUrl}
+                    placeholder="https://www.figma.com/design/…"
+                    onChange={(e) => setFileUrl(e.target.value)}
+                  />
+                </label>
+                <button disabled={!fileUrl.trim() || busy === 'file'}>
+                  {busy === 'file' ? '…' : 'Charger'}
+                </button>
+              </form>
+              {file && (
+                <label className="field">
+                  Page · {file.name}
+                  <select
+                    value={page ? pageId : ''}
+                    onChange={(e) => {
+                      const next = file.pages.find(
+                        (p) => p.id === e.target.value,
+                      );
+                      setPageId(e.target.value);
+                      if (next)
+                        void request('figma/page', {
+                          pageId: next.id,
+                          pageName: next.name,
+                        }).catch((err) => onError((err as Error).message));
+                    }}
+                  >
+                    <option value="" disabled>
+                      Choisir une page
+                    </option>
+                    {file.pages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {file?.role === 'viewer' && (
+                <p className="export-problem" role="status">
+                  Droits insuffisants : ce fichier est en lecture seule pour
+                  votre compte.
+                </p>
+              )}
+              {pluginProblem && (
+                <p className="export-problem" role="status">
+                  {pluginProblem}
+                  {(live?.unpaired || !live?.connected) && (
+                    <>
+                      {' '}
+                      Code :{' '}
+                      <code className="pair-code">{status.pairCode}</code>
+                    </>
+                  )}
+                </p>
+              )}
+              {problem && (
+                <p className="error" role="alert">
+                  {problem}
+                </p>
+              )}
+              <div className="export-choices">
+                <button
+                  disabled={!ready || !!busy}
+                  onClick={() => void run('ds')}
+                >
+                  Design system
+                </button>
+                <button
+                  disabled={!ready || !!busy}
+                  onClick={() => void run('preview')}
+                >
+                  Aperçu actuel
+                </button>
+              </div>
+              {busy === 'export' && (
+                <p className="token-hint" role="status">
+                  Export en cours…
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

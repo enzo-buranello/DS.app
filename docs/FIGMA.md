@@ -1,63 +1,86 @@
-# Figma : source de vérité réelle, pas intégration simulée
+# Figma — export depuis DS-Studio
 
-**V3 : pont par plugin local — IMPLEMENTED, PARTIAL.** Voir
-[plugins/figma-bridge](../plugins/figma-bridge/README.md). Le plugin, lancé par
-l'utilisateur dans Figma Desktop, importe variables, styles et sélection, et
-exporte les écrans en frames natives liées à une collection de variables.
-Testé : routes HTTP, appairage, validation des données, sérialisation des
-écrans dans Chromium, et logique du plugin contre une imitation de l'API Figma.
-**Non testé dans Figma réel** depuis ce dépôt : à vérifier au premier usage.
+Le bouton **↗ Exporter** (barre principale et barre de la fenêtre d'aperçu) est le
+seul point d'entrée Figma de l'app. Deux pièces travaillent ensemble :
 
-Garanties : appairage par code révocable, origine « null » seule acceptée sur
-`/plugin/figma/*`, import soumis au diff humain, export prévisualisé puis
-appliqué seulement si les tokens n'ont pas changé, relecture après écriture.
-Aucun jeton Figma, aucun MCP Figma dans l'agent de discussion.
+- **OAuth + API REST Figma** (lecture seule) : qui vous êtes, nom, pages et droits
+  du fichier choisi.
+- **Plugin local « DS-Studio Bridge »** (écriture) : l'API REST ne crée pas de
+  nœuds, c'est donc le plugin, ouvert sur ce fichier dans Figma Desktop, qui écrit.
 
-Le reste de ce document décrit l'ancienne approche V2 (sans plugin).
+## 1. Créer l'app OAuth Figma (une fois)
 
-La [documentation Figma officielle du serveur distant](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/)
-indique que seuls les clients du catalogue autorisé peuvent se connecter. Un
-nouveau client doit passer par la procédure d’admission. DS-Studio n’est pas déclaré
-client autorisé. Ne jamais usurper un client, extraire un jeton, réutiliser une session
-Codex ou recopier des cookies pour contourner cette restriction.
+1. Ouvrez <https://www.figma.com/developers/apps> et cliquez **Create a new app**.
+2. Nom : par exemple « DS-Studio (local) ». Choisissez votre équipe.
+3. **Redirect URL** : `http://127.0.0.1:4310/api/figma/oauth/callback`
+   (remplacez 4310 si vous lancez DS-Studio avec un autre `PORT`).
+4. **Scopes** : `current_user:read` et `file_content:read`, rien d'autre.
+5. Laissez l'app en **brouillon** (draft) : elle suffit pour votre propre compte.
+   Une app **privée** est nécessaire pour d'autres membres de l'équipe.
+6. Copiez le **Client ID** et le **Client secret** dans `.env` à la racine du
+   projet (fichier ignoré par Git, voir `.env.example`) :
 
-## Parcours réaliste aujourd’hui
+   ```
+   FIGMA_CLIENT_ID=…
+   FIGMA_CLIENT_SECRET=…
+   ```
 
-1. Garder votre DS réel dans Figma et identifier son périmètre de travail.
-2. Exporter volontairement des données non sensibles par un moyen autorisé dont
-   vous contrôlez les droits. Ne pas confondre un export de composants avec leur
-   comportement responsive dans du code.
-3. Convertir explicitement les tokens vers le [format local](TOKENS.md), puis importer
-   le fichier dans DS-Studio et accepter le diff. V2 ne fournit pas ce convertisseur.
-4. Tester vos décisions localement. Exporter les tokens courants pour documenter un
-   rapprochement manuel avec Figma. L’export ne modifie pas votre fichier Figma.
+7. Relancez DS-Studio. Seules ces deux clés sont lues dans `.env`.
 
-Le JSON local constitue le mode autonome démontré, pas une synchronisation bidirectionnelle.
-Les plans, limites et droits d’édition réels devront être contrôlés pour chaque étudiant.
-Pas de polling automatique Figma prévu et aucune gratuité permanente promise.
+Ne commitez jamais `.env`. Si le secret a fuité, régénérez-le sur la page de l'app.
 
-## Intégration future : contrat, pas code opérationnel
+## 2. Plugin (une fois)
 
-`connectors/figma/contract.ts` sépare lecture, proposition et application validée.
-Une réalisation doit :
+Figma Desktop › Plugins › Development › **Import plugin from manifest…** ›
+`plugins/figma-bridge/manifest.json`. Détails : [plugins/figma-bridge/README.md](../plugins/figma-bridge/README.md).
 
-- Employer un client officiellement autorisé et l’OAuth officiel propre à l’étudiant.
-  Tester d’abord une lecture minimale d’un **fichier de test explicitement autorisé**.
-- Définir une liste autorisée de fichier et variables, avec une révision de départ.
-  Échouer si la cible, les droits ou la révision diffèrent.
-- Préparer un diff structuré, afficher l’impact et obtenir une validation humaine
-  liée au hash de la proposition, à la cible et à la révision, à usage unique.
-- Recontrôler les droits et la révision juste avant l’écriture, limiter l’opération,
-  relire les valeurs après exécution et garder une trace d’audit sans secret.
-- En cas de timeout, relire avant toute nouvelle tentative pour ne pas doubler une
-  écriture. Prévoir refus, annulation, révocation et restauration sur une copie.
+## 3. Exporter
 
-L’agent de discussion ne doit jamais disposer simultanément d’un MCP Figma libre.
-Un simple skill « demande confirmation » ne constitue pas une barrière. Conserver
-les outils distants derrière le contrôleur, ou rester non connecté si le fournisseur
-ne permet pas ce contrôle. Le contrat TypeScript ne met pas en œuvre ces garanties.
+1. **Exporter › Se connecter à Figma** : un onglet s'ouvre sur figma.com,
+   autorisez, puis revenez à DS-Studio.
+2. Collez le **lien du fichier** cible, **Charger**, puis choisissez la **page**.
+   Le dernier fichier et la dernière page sont mémorisés.
+3. Dans Figma Desktop, ouvrez ce fichier et lancez **DS-Studio Bridge** ; collez le
+   code d'appairage affiché par DS-Studio. Le plugin indique « Lien direct actif ».
+4. Choisissez **Design system** ou **Aperçu actuel**.
 
-Le serveur officiel dispose d’outils d’écriture ; ne pas supposer qu’un accès MCP
-est en lecture seule. Les [outils officiels](https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/)
-et les [droits et limites](https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/)
-seront à relire lors de la connexion, car ils peuvent évoluer.
+- **Design system** : collection de variables « DS-Studio » (un token = une
+  variable), composants et component sets avec variantes (bouton), auto layout
+  conservé ; un bouton dans la carte est une instance du variant.
+- **Aperçu actuel** : l'écran affiché (largeur, scénario) en frames auto layout ;
+  chaque composant DS reconnu devient une instance du composant déjà exporté sur
+  la page, ou d'un composant créé à cette occasion.
+
+**Mise à jour sans doublon** : chaque nœud créé porte un identifiant
+(`pluginData` `dsStudioKey`) et DS-Studio conserve la correspondance
+clé → id de nœud par fichier (`.ds-studio/figma/exports.json`). Un ré-export met à
+jour les mêmes nœuds ; les instances déjà posées restent liées.
+
+## Erreurs signalées
+
+| Situation                                | Message                                        |
+| ---------------------------------------- | ---------------------------------------------- |
+| App OAuth absente de `.env`              | « Connexion Figma non configurée… »            |
+| Pas de session, ou refresh refusé        | « Non connecté à Figma » / « Session expirée » |
+| Plugin fermé ou mauvais code             | « Plugin non lancé » / « non connecté »        |
+| Plugin lancé sur un autre fichier        | « Fichier non ouvert dans Figma : ouvrez … »   |
+| Fichier en lecture seule (rôle `viewer`) | « Droits insuffisants… »                       |
+| Page supprimée entre-temps               | « Page introuvable… »                          |
+
+## Sécurité
+
+- PKCE (S256) et `state` à usage unique (10 min) ; le retour OAuth est la seule
+  route acceptée depuis un autre site.
+- Token stocké dans le **trousseau macOS** (commande `security`, secret transmis
+  par l'entrée standard, jamais en argument). Ailleurs : `.ds-studio/figma/oauth.json`
+  en 0600, hors Git. Il n'est jamais renvoyé au navigateur.
+- Rafraîchissement automatique 5 min avant expiration ; un refresh refusé efface
+  la session. **Se déconnecter** efface le token local.
+- Le plugin s'authentifie par le code d'appairage ; il n'écrit que sur demande
+  (clic « Exporter ») et relit les variables après écriture.
+
+## État
+
+**IMPLEMENTED, TESTED** avec un faux serveur Figma (OAuth, REST) et un plugin
+simulé (`npm test`, `npm run test:e2e`). **Non vérifié** avec un vrai compte Figma
+tant que le parcours ci-dessus n'a pas été fait dans Figma Desktop.
