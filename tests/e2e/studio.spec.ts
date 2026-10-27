@@ -704,3 +704,248 @@ test('créer un composant : chaque réglage en direct, lien aux tokens, persista
   await expect(page.locator('.ds-custom').first()).toHaveCSS('height', '140px');
   await page.screenshot({ path: 'test-results/composant-manuel.png' });
 });
+
+// Plugin simulé : mêmes routes et même code d'appairage que le vrai plugin.
+const PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+function figmaNode(
+  nodeId: string,
+  name: string,
+  set: null | { id: string; name: string },
+  properties: Record<string, string>,
+  characters: string,
+) {
+  return {
+    nodeId,
+    name,
+    set,
+    properties,
+    fill: { hex: '#18734B', opacity: 1, variable: null },
+    stroke: null,
+    strokeWeight: 0,
+    dash: 'solid',
+    radii: [10, 10, 10, 10],
+    radiusVariables: [null, null, null, null],
+    layout: {
+      direction: 'HORIZONTAL',
+      gap: 8,
+      gapVariable: null,
+      padding: [8, 16, 8, 16],
+      paddingVariables: [null, null, null, null],
+      primary: 'CENTER',
+      counter: 'CENTER',
+      sizingH: 'HUG',
+      sizingV: 'HUG',
+    },
+    width: 120,
+    height: 44,
+    minWidth: null,
+    maxWidth: null,
+    minHeight: null,
+    maxHeight: null,
+    shadow: null,
+    blur: 0,
+    text: {
+      characters,
+      fontFamily: 'Inter',
+      fontWeight: 600,
+      fontSize: 16,
+      fontSizeVariable: null,
+      lineHeight: { unit: 'AUTO' },
+      color: { hex: '#FFFFFF', opacity: 1, variable: null },
+    },
+  };
+}
+async function fakePlugin(page: Page) {
+  const { pairCode } = await (await page.request.get('/api/figma')).json();
+  const headers = { Authorization: `Bearer ${pairCode}` };
+  const info = {
+    file: { name: 'Kit UI', key: 'AbCdEf123456' },
+    pages: [
+      { id: 'p1', name: 'Composants' },
+      { id: 'p2', name: 'Vide' },
+    ],
+  };
+  const set = { id: '1:1', name: 'Bouton' };
+  const run = (cmd: {
+    type: string;
+    args: { pageId: string; ids?: string[] };
+  }) => {
+    if (!info.pages.some((p) => p.id === cmd.args.pageId))
+      throw new Error('Page introuvable dans le fichier ouvert.');
+    if (cmd.type === 'components')
+      return {
+        items:
+          cmd.args.pageId === 'p2'
+            ? []
+            : [
+                {
+                  id: '1:1',
+                  name: 'Bouton',
+                  type: 'COMPONENT_SET',
+                  variants: 2,
+                  thumbnail: PNG,
+                },
+                {
+                  id: '2:1',
+                  name: 'Badge',
+                  type: 'COMPONENT',
+                  variants: 1,
+                  thumbnail: null,
+                },
+              ],
+      };
+    return {
+      items: [
+        ...(cmd.args.ids!.includes('1:1')
+          ? [
+              figmaNode('1:2', 'Taille=S', set, { Taille: 'S' }, 'Petit'),
+              figmaNode('1:3', 'Taille=L', set, { Taille: 'L' }, 'Grand'),
+            ]
+          : []),
+        ...(cmd.args.ids!.includes('2:1')
+          ? [figmaNode('2:1', 'Badge', null, {}, 'Nouveau')]
+          : []),
+      ],
+    };
+  };
+  let running = true;
+  const loop = (async () => {
+    while (running) {
+      const r = await page.request.post('/plugin/figma/live', {
+        headers,
+        data: info,
+      });
+      const { command } = await r.json();
+      if (command) {
+        try {
+          await page.request.post('/plugin/figma/result', {
+            headers,
+            data: { id: command.id, ok: true, data: run(command) },
+          });
+        } catch (e) {
+          await page.request.post('/plugin/figma/result', {
+            headers,
+            data: { id: command.id, ok: false, error: (e as Error).message },
+          });
+        }
+      } else await new Promise((r) => setTimeout(r, 200));
+    }
+  })();
+  return {
+    info,
+    stop: async () => {
+      running = false;
+      await loop;
+    },
+  };
+}
+
+test('import Figma : états, pages, sélection multiple, variantes, ré-import et mémoire', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const section = page.locator('#figma-import');
+  await expect(section.getByText('Figma non connecté.')).toBeVisible();
+  await section.getByRole('button', { name: 'Connecter Figma' }).click();
+  const { pairCode } = await (await page.request.get('/api/figma')).json();
+  await expect(section.locator('.pair-code')).toHaveText(pairCode);
+
+  const plugin = await fakePlugin(page);
+  const fileSelect = section.getByRole('combobox', { name: 'Fichier Figma' });
+  await expect(fileSelect).toContainText('Kit UI');
+  const pageSelect = section.getByRole('combobox', { name: 'Page' });
+
+  // Page vide puis page avec composants (miniature + nombre de variantes).
+  await pageSelect.selectOption('p2');
+  await expect(
+    section.getByText('Aucun composant sur cette page.'),
+  ).toBeVisible();
+  await pageSelect.selectOption('p1');
+  const list = section.getByRole('list', { name: 'Composants de la page' });
+  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await expect(list).toContainText('2 variante(s)');
+  await expect(list.locator('img')).toHaveCount(1);
+
+  // URL d'un autre fichier : message clair, import bloqué.
+  const url = section.getByLabel('Ou coller l’URL du fichier');
+  await url.fill('https://www.figma.com/design/ZzZzZzZzZz99/Autre');
+  await expect(section.getByRole('alert')).toContainText(
+    'ne correspond pas au fichier ouvert',
+  );
+  await url.fill('https://www.figma.com/design/AbCdEf123456/Kit-UI');
+  await url.blur();
+  await expect(section.getByRole('alert')).toHaveCount(0);
+
+  const importButton = section.getByRole('button', { name: /^Importer/ });
+  await expect(importButton).toBeDisabled();
+  await list.getByLabel(/Bouton/).check();
+  await list.getByLabel(/Badge/).check();
+  await importButton.click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Import Figma' }),
+  ).toContainText('3 composant(s) créé(s), 0 mis à jour');
+  const stage = page.locator('.stage-catalogue');
+  await expect(
+    stage.getByRole('button', { name: 'Sélectionner Bouton · Taille=S' }),
+  ).toBeVisible();
+  await expect(
+    stage.getByRole('button', { name: 'Sélectionner Bouton · Taille=L' }),
+  ).toBeVisible();
+  await expect(
+    stage.getByRole('button', { name: 'Sélectionner Badge' }),
+  ).toContainText('Nouveau');
+  const { components } = await (
+    await page.request.get('/api/components')
+  ).json();
+  const imported = components.filter((c: { source: unknown }) => c.source);
+  expect(imported).toHaveLength(3);
+  // Couleur égale à color.success → liée au token ; rayon 10 → radius.control.
+  expect(imported[0].fill).toEqual({ token: 'color.success', opacity: 1 });
+  expect(imported[0].radius.topLeft).toEqual({ token: 'radius.control' });
+  expect(imported[0].set).toEqual({
+    id: '1:1',
+    name: 'Bouton',
+    properties: { Taille: 'S' },
+  });
+
+  // Ré-import : mise à jour, aucun doublon.
+  await list.getByLabel(/Bouton/).check();
+  await list.getByLabel(/Badge/).check();
+  await importButton.click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Import Figma' }),
+  ).toContainText('0 composant(s) créé(s), 3 mis à jour');
+  const after = await (await page.request.get('/api/components')).json();
+  expect(
+    after.components.filter((c: { source: unknown }) => c.source),
+  ).toHaveLength(3);
+
+  // Fichier et page mémorisés après rechargement.
+  await page.reload();
+  await expect(section.getByRole('combobox', { name: 'Page' })).toHaveValue(
+    'p1',
+  );
+  await expect(section.getByLabel('Ou coller l’URL du fichier')).toHaveValue(
+    'https://www.figma.com/design/AbCdEf123456/Kit-UI',
+  );
+
+  // Erreur côté plugin : page absente du fichier → message clair.
+  const r = await page.request.post('/api/figma/components', {
+    headers: {
+      'x-ds-studio': (await (await page.request.get('/api/bootstrap')).json())
+        .csrf,
+    },
+    data: { pageId: 'p404' },
+  });
+  expect(r.status()).toBe(502);
+  expect((await r.json()).error).toContain('Figma : Page introuvable');
+
+  // Plugin fermé : retour à l'état « non connecté ».
+  await plugin.stop();
+  await expect(section.getByText('Figma non connecté.')).toBeVisible({
+    timeout: 10_000,
+  });
+});

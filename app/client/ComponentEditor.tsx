@@ -23,13 +23,17 @@ export function useComponents(onError: (message: string) => void) {
     request('components/save', { component }).catch((e) =>
       onError((e as Error).message),
     );
-  useEffect(() => {
+  const reload = () =>
     request<{ components: DSComponent[] }>('components')
       .then((r) => {
         setComponents(r.components);
-        setSelectedId(r.components[0]?.id);
+        setSelectedId((id) =>
+          r.components.some((c) => c.id === id) ? id : r.components[0]?.id,
+        );
       })
       .catch((e) => onError((e as Error).message));
+  useEffect(() => {
+    void reload();
     const pending = timers.current;
     return () => pending.forEach(clearTimeout);
   }, []);
@@ -64,6 +68,7 @@ export function useComponents(onError: (message: string) => void) {
     update,
     create,
     remove,
+    reload,
   };
 }
 

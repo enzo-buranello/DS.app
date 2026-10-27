@@ -366,10 +366,48 @@ h3 {
 .settings-group > summary h2 {
   font-size: 13px;
 }
-.settings-group:empty,
-#figma-import:empty {
+.figma-import {
+  display: grid;
+  gap: 10px;
+}
+.figma-state {
+  margin: 0;
+  font-size: 12px;
+}
+.figma-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #526079;
+}
+.figma-components {
+  list-style: none;
+  margin: 0;
   padding: 0;
-  border: 0;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #e0e4ec;
+  border-radius: 8px;
+}
+.figma-components li + li {
+  border-top: 1px solid #edf0f4;
+}
+.figma-components label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.figma-components img,
+.figma-components .thumb-empty {
+  width: 48px;
+  height: 32px;
+  object-fit: contain;
+  background: #f3f5fa;
+  border-radius: 4px;
+  flex: none;
 }
 .component-editor {
   display: grid;

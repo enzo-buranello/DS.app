@@ -96,6 +96,7 @@
 <label for="server">Adresse du serveur</label>
 <input id="server" spellcheck="false" />
 <button id="test">Enregistrer et tester</button>
+<p id="live">Lien direct inactif.</p>
 
 <h2>Importer dans DS-Studio</h2>
 <p>
@@ -148,6 +149,46 @@
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
     );
 
+  // Lien direct : tant que le plugin est ouvert, DS-Studio voit le fichier et
+  // ses pages, et peut demander la liste des composants ou leur import.
+  const replies = {};
+  let seq = 0;
+  const ask = (msg) =>
+    new Promise((resolve) => {
+      const rid = ++seq;
+      replies[rid] = resolve;
+      send(Object.assign({ rid }, msg));
+    });
+  async function liveLoop() {
+    let delay = 1000;
+    if ($('pair').value.trim()) {
+      try {
+        const info = await ask({ type: 'live-info' });
+        const r = await call('live', info.data);
+        $('live').textContent = 'Lien direct actif avec DS-Studio.';
+        if (r.command) {
+          status('Commande DS-Studio en cours…');
+          const res = await ask({ type: 'command', command: r.command });
+          await call(
+            'result',
+            res.ok
+              ? { id: r.command.id, ok: true, data: res.data }
+              : {
+                  id: r.command.id,
+                  ok: false,
+                  error: String(res.error).slice(0, 500),
+                },
+          );
+          status(res.ok ? 'Commande DS-Studio terminée.' : res.error, !res.ok);
+          delay = 50;
+        }
+      } catch (e) {
+        $('live').textContent = 'Lien direct inactif : ' + e.message;
+      }
+    }
+    setTimeout(liveLoop, delay);
+  }
+
   $('test').onclick = async () => {
     send({
       type: 'save-settings',
@@ -192,9 +233,14 @@
   onmessage = async (event) => {
     const msg = event.data.pluginMessage;
     if (!msg) return;
-    if (msg.type === 'settings') {
+    if (msg.type === 'reply') {
+      const resolve = replies[msg.rid];
+      delete replies[msg.rid];
+      if (resolve) resolve(msg);
+    } else if (msg.type === 'settings') {
       $('pair').value = msg.pair;
       $('server').value = msg.server;
+      liveLoop();
     } else if (msg.type === 'import-data') {
       const p = msg.payload;
       try {

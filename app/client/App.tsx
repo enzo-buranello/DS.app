@@ -3,6 +3,7 @@ import { Catalogue, ComponentView, Scenario } from './DesignSystem.js';
 import { ComponentEditor, useComponents } from './ComponentEditor.js';
 import ProjectBrief from './ProjectBrief.js';
 import FigmaPanel from './FigmaPanel.js';
+import FigmaImport from './FigmaImport.js';
 import { useTokenDraft } from './useTokenDraft.js';
 import { bootstrap, commit, getState, request, type Bootstrap } from './api.js';
 import {
@@ -535,7 +536,15 @@ export default function App() {
             <summary>
               <h2>Import Figma</h2>
             </summary>
-            <section className="settings-section" id="figma-import" />
+            <section className="settings-section" id="figma-import">
+              <FigmaImport
+                onImported={(summary) => {
+                  void custom.reload();
+                  setNotice(summary);
+                  setView('ds');
+                }}
+              />
+            </section>
           </details>
           <details
             className="settings-group"

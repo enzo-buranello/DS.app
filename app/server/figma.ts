@@ -11,6 +11,25 @@ import {
   type StoredImport,
 } from '../shared/figma.js';
 import type { Tokens } from '../shared/model.js';
+import { liveInfoSchema, type LiveInfo } from '../shared/figmaComponents.js';
+import { z } from 'zod';
+
+const LIVE_TIMEOUT = 5_000;
+const resultSchema = z
+  .object({
+    id: z.string().uuid(),
+    ok: z.boolean(),
+    data: z.unknown().optional(),
+    error: z.string().max(500).optional(),
+  })
+  .strict();
+export const selectionSchema = z
+  .object({
+    fileUrl: z.string().max(500),
+    pageId: z.string().max(80),
+  })
+  .strict();
+type Command = { id: string; type: 'components' | 'import'; args: unknown };
 
 // Pont local avec le plugin Figma « DS-Studio Bridge ».
 // - Le plugin s'authentifie par un code d'appairage affiché dans l'app (Bearer).
@@ -19,6 +38,16 @@ import type { Tokens } from '../shared/model.js';
 export class FigmaBridge {
   private dir: string;
   private token = '';
+  private live: (LiveInfo & { seen: number }) | null = null;
+  private commands: Command[] = [];
+  private waiting = new Map<
+    string,
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   constructor(directory: string) {
     this.dir = path.join(directory, 'figma');
   }
@@ -53,6 +82,52 @@ export class FigmaBridge {
     const got = Buffer.from(String(req.headers.authorization ?? ''));
     const want = Buffer.from(`Bearer ${this.token}`);
     return got.length === want.length && timingSafeEqual(got, want);
+  }
+  /** Plugin ouvert dans Figma Desktop : il s'annonce au moins toutes les secondes. */
+  get liveStatus() {
+    const connected = !!this.live && Date.now() - this.live.seen < LIVE_TIMEOUT;
+    return {
+      connected,
+      file: connected ? this.live!.file : null,
+      pages: connected ? this.live!.pages : [],
+    };
+  }
+  /** Transmet une commande au plugin ouvert et attend son résultat. */
+  command(type: Command['type'], args: unknown, timeout = 60_000) {
+    if (!this.liveStatus.connected)
+      throw new StudioError(
+        'Plugin Figma non lancé. Ouvrez Figma Desktop puis Plugins > Development > DS-Studio Bridge.',
+        409,
+      );
+    const id = randomUUID();
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiting.delete(id);
+        this.commands = this.commands.filter((c) => c.id !== id);
+        reject(
+          new StudioError(
+            'Le plugin Figma n’a pas répondu à temps. Vérifiez qu’il est toujours ouvert.',
+            504,
+          ),
+        );
+      }, timeout);
+      this.waiting.set(id, { resolve, reject, timer });
+      this.commands.push({ id, type, args });
+    });
+  }
+  async selection() {
+    try {
+      return selectionSchema.parse(
+        JSON.parse(await readPrivate(this.file('selection.json'), 10_000)),
+      );
+    } catch {
+      return { fileUrl: '', pageId: '' };
+    }
+  }
+  async saveSelection(body: unknown) {
+    const selection = selectionSchema.parse(body);
+    await atomicWrite(this.file('selection.json'), JSON.stringify(selection));
+    return selection;
   }
   async lastImport(): Promise<StoredImport | null> {
     try {
@@ -166,24 +241,41 @@ export class FigmaBridge {
       // Les tokens envoyés sont ceux du disque à l'instant de la lecture.
       return send(200, { ...data, tokens: tokens() });
     }
-    if (req.method === 'POST' && route === 'import') {
-      if (!req.headers['content-type']?.startsWith('application/json'))
-        throw new StudioError('JSON requis.', 415);
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of req) {
-        size += chunk.length;
-        if (size > 40_000_000)
-          throw new StudioError('Import trop volumineux.', 413);
-        chunks.push(chunk);
+    if (req.method !== 'POST') throw new StudioError('Route inconnue.', 404);
+    if (!req.headers['content-type']?.startsWith('application/json'))
+      throw new StudioError('JSON requis.', 415);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > 40_000_000)
+        throw new StudioError('Import trop volumineux.', 413);
+      chunks.push(chunk);
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new StudioError('JSON invalide.');
+    }
+    if (route === 'import') return send(200, await this.saveImport(body));
+    if (route === 'live') {
+      this.live = { ...liveInfoSchema.parse(body), seen: Date.now() };
+      return send(200, { command: this.commands.shift() ?? null });
+    }
+    if (route === 'result') {
+      const r = resultSchema.parse(body);
+      const pending = this.waiting.get(r.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.waiting.delete(r.id);
+        if (r.ok) pending.resolve(r.data);
+        else
+          pending.reject(
+            new StudioError(`Figma : ${r.error ?? 'erreur inconnue.'}`, 502),
+          );
       }
-      let body: unknown;
-      try {
-        body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      } catch {
-        throw new StudioError('JSON invalide.');
-      }
-      return send(200, await this.saveImport(body));
+      return send(200, { ok: true });
     }
     throw new StudioError('Route inconnue.', 404);
   }

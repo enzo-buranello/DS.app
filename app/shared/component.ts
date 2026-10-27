@@ -113,13 +113,33 @@ export const componentSchema = z
         maxHeight: optionalPx,
       })
       .strict(),
+    // Variante d'un component set (ex. Taille=Grand) : null pour un composant seul.
+    set: z
+      .object({
+        id: z.string().max(80),
+        name: z.string().max(120),
+        properties: z.record(z.string().max(60), z.string().max(60)),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    // Provenance Figma : permet de mettre à jour au lieu de dupliquer.
+    source: z
+      .object({
+        nodeId: z.string().max(80),
+        fileKey: z.string().max(64).nullable(),
+        fileName: z.string().max(200),
+      })
+      .strict()
+      .nullable()
+      .default(null),
   })
   .strict();
 export type DSComponent = z.infer<typeof componentSchema>;
 export type ColorValue = z.infer<typeof colorValueSchema>;
 export type LengthValue = z.infer<typeof lengthValueSchema>;
 export type FontSizeValue = z.infer<typeof fontSizeValueSchema>;
-export const MAX_COMPONENTS = 50;
+export const MAX_COMPONENTS = 200;
 export const componentsFileSchema = z
   .object({
     components: z.array(componentSchema).max(MAX_COMPONENTS).default([]),
@@ -172,6 +192,8 @@ export function newComponent(id: string, index: number): DSComponent {
       minHeight: null,
       maxHeight: null,
     },
+    set: null,
+    source: null,
   };
 }
 

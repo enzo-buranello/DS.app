@@ -380,8 +380,223 @@ async function applyExport(data, previewTokensJson) {
   };
 }
 
+// ---------- Lien direct : DS-Studio commande, le plugin ouvert exécute ----------
+function liveInfo() {
+  return {
+    file: {
+      name: figma.root.name.slice(0, 200),
+      // Disponible pour un plugin de développement ; null sinon.
+      key: typeof figma.fileKey === 'string' ? figma.fileKey : null,
+    },
+    pages: figma.root.children
+      .slice(0, 500)
+      .map((p) => ({ id: p.id, name: p.name.slice(0, 200) })),
+  };
+}
+async function pageById(id) {
+  const page = figma.root.children.find((p) => p.id === id);
+  if (!page)
+    throw new Error(
+      'Page introuvable dans le fichier ouvert. Rechargez la liste des pages.',
+    );
+  await page.loadAsync();
+  return page;
+}
+async function listComponents(pageId) {
+  const page = await pageById(pageId);
+  const nodes = page
+    .findAllWithCriteria({ types: ['COMPONENT_SET', 'COMPONENT'] })
+    .filter(
+      (n) =>
+        n.type === 'COMPONENT_SET' ||
+        !n.parent ||
+        n.parent.type !== 'COMPONENT_SET',
+    )
+    .slice(0, 300);
+  const items = [];
+  for (const n of nodes) {
+    let thumbnail = null;
+    try {
+      const bytes = await n.exportAsync({
+        format: 'PNG',
+        constraint: { type: 'HEIGHT', value: 96 },
+      });
+      if (bytes.length < 250000)
+        thumbnail = 'data:image/png;base64,' + figma.base64Encode(bytes);
+    } catch (e) {
+      /* Miniature facultative. */
+    }
+    items.push({
+      id: n.id,
+      name: n.name.slice(0, 200),
+      type: n.type,
+      variants: n.type === 'COMPONENT_SET' ? Math.max(1, n.children.length) : 1,
+      thumbnail,
+    });
+  }
+  return { items };
+}
+const num = (v, fallback) =>
+  typeof v === 'number' && isFinite(v) ? v : fallback;
+async function variableName(alias) {
+  const a = Array.isArray(alias) ? alias[0] : alias;
+  if (!a || !a.id) return null;
+  const v = await figma.variables.getVariableByIdAsync(a.id);
+  return v ? v.name.slice(0, 200) : null;
+}
+async function paintOf(paints) {
+  if (!Array.isArray(paints)) return null; // figma.mixed
+  const p = paints.find((x) => x.type === 'SOLID' && x.visible !== false);
+  if (!p) return null;
+  return {
+    hex: toHex(p.color),
+    opacity: num(p.opacity, 1),
+    variable: await variableName(p.boundVariables && p.boundVariables.color),
+  };
+}
+const first = (node, key, getter) =>
+  node[key] === figma.mixed ? node[getter](0, 1) : node[key];
+// Description neutre d'un composant : la conversion vers DS-Studio se fait côté serveur.
+async function serialize(node, set) {
+  const bv = node.boundVariables || {};
+  const auto = node.layoutMode && node.layoutMode !== 'NONE';
+  const weight = num(
+    node.strokeWeight === figma.mixed
+      ? node.strokeTopWeight
+      : node.strokeWeight,
+    0,
+  );
+  const effects = Array.isArray(node.effects) ? node.effects : [];
+  const shadow = effects.find(
+    (e) => e.type === 'DROP_SHADOW' && e.visible !== false,
+  );
+  const blur = effects.find(
+    (e) => e.type === 'LAYER_BLUR' && e.visible !== false,
+  );
+  const text = node.findOne ? node.findOne((c) => c.type === 'TEXT') : null;
+  let textData = null;
+  if (text) {
+    const lh = first(text, 'lineHeight', 'getRangeLineHeight');
+    textData = {
+      characters: text.characters.slice(0, 2000),
+      fontFamily: first(text, 'fontName', 'getRangeFontName').family.slice(
+        0,
+        100,
+      ),
+      fontWeight: num(first(text, 'fontWeight', 'getRangeFontWeight'), 400),
+      fontSize: num(first(text, 'fontSize', 'getRangeFontSize'), 16),
+      fontSizeVariable: await variableName(
+        text.boundVariables && text.boundVariables.fontSize,
+      ),
+      lineHeight:
+        lh.unit === 'AUTO'
+          ? { unit: 'AUTO' }
+          : { unit: lh.unit, value: num(lh.value, 0) },
+      color: await paintOf(text.fills),
+    };
+  }
+  const corners = [
+    'topLeftRadius',
+    'topRightRadius',
+    'bottomRightRadius',
+    'bottomLeftRadius',
+  ];
+  const sides = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+  return {
+    nodeId: node.id,
+    name: node.name.slice(0, 200),
+    set,
+    properties: node.variantProperties || {},
+    fill: await paintOf(node.fills),
+    stroke: await paintOf(node.strokes),
+    strokeWeight: weight,
+    dash:
+      node.dashPattern && node.dashPattern.length
+        ? node.dashPattern[0] <= weight
+          ? 'dotted'
+          : 'dashed'
+        : 'solid',
+    radii: corners.map((c) => num(node[c], 0)),
+    radiusVariables: await Promise.all(corners.map((c) => variableName(bv[c]))),
+    layout: auto
+      ? {
+          direction: node.layoutMode,
+          gap: num(node.itemSpacing, 0),
+          gapVariable: await variableName(bv.itemSpacing),
+          padding: sides.map((side) => num(node[side], 0)),
+          paddingVariables: await Promise.all(
+            sides.map((side) => variableName(bv[side])),
+          ),
+          primary: node.primaryAxisAlignItems || 'MIN',
+          counter: node.counterAxisAlignItems || 'MIN',
+          sizingH: node.layoutSizingHorizontal || 'FIXED',
+          sizingV: node.layoutSizingVertical || 'FIXED',
+        }
+      : null,
+    width: num(node.width, 0),
+    height: num(node.height, 0),
+    minWidth: num(node.minWidth, null),
+    maxWidth: num(node.maxWidth, null),
+    minHeight: num(node.minHeight, null),
+    maxHeight: num(node.maxHeight, null),
+    shadow: shadow
+      ? {
+          x: num(shadow.offset && shadow.offset.x, 0),
+          y: num(shadow.offset && shadow.offset.y, 0),
+          blur: num(shadow.radius, 0),
+          spread: num(shadow.spread, 0),
+          color: {
+            hex: toHex(shadow.color),
+            opacity: num(shadow.color.a, 1),
+            variable: null,
+          },
+        }
+      : null,
+    blur: blur ? num(blur.radius, 0) : 0,
+    text: textData,
+  };
+}
+async function importComponents(pageId, ids) {
+  await pageById(pageId);
+  const items = [];
+  for (const id of ids) {
+    const node = await figma.getNodeByIdAsync(id);
+    if (!node) throw new Error('Composant introuvable : ' + id + '.');
+    if (node.type === 'COMPONENT_SET') {
+      const set = { id: node.id, name: node.name.slice(0, 120) };
+      for (const v of node.children)
+        if (v.type === 'COMPONENT') items.push(await serialize(v, set));
+    } else if (node.type === 'COMPONENT') {
+      items.push(await serialize(node, null));
+    }
+  }
+  return { items: items.slice(0, 300) };
+}
+async function runCommand(command) {
+  if (command.type === 'components') return listComponents(command.args.pageId);
+  if (command.type === 'import')
+    return importComponents(command.args.pageId, command.args.ids);
+  throw new Error('Commande inconnue.');
+}
+
 // ---------- Messages ----------
 figma.ui.onmessage = async (msg) => {
+  // Requêtes numérotées de l'interface (lien direct) : réponse avec le même rid.
+  if (msg.rid) {
+    try {
+      const data =
+        msg.type === 'live-info' ? liveInfo() : await runCommand(msg.command);
+      post({ type: 'reply', rid: msg.rid, ok: true, data });
+    } catch (e) {
+      post({
+        type: 'reply',
+        rid: msg.rid,
+        ok: false,
+        error: String((e && e.message) || e),
+      });
+    }
+    return;
+  }
   try {
     if (msg.type === 'init') {
       post({

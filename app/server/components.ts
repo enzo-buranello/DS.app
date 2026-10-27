@@ -57,6 +57,30 @@ export class ComponentStore {
       return list.map((c, i) => (i === index ? valid : c));
     });
   }
+  /** Import Figma : un composant déjà importé (même nœud) est mis à jour, pas dupliqué. */
+  upsertBySource(items: DSComponent[]) {
+    const valid = items.map((c) => componentSchema.parse(c));
+    let created = 0;
+    let updated = 0;
+    return this.write((list) => {
+      const next = [...list];
+      for (const item of valid) {
+        const index = next.findIndex(
+          (c) => c.source && c.source.nodeId === item.source?.nodeId,
+        );
+        if (index === -1) {
+          next.push(item);
+          created++;
+        } else {
+          next[index] = { ...item, id: next[index].id };
+          updated++;
+        }
+      }
+      if (next.length > MAX_COMPONENTS)
+        throw new StudioError(`${MAX_COMPONENTS} composants maximum.`, 409);
+      return next;
+    }).then((file) => ({ ...file, created, updated }));
+  }
   remove(id: string) {
     return this.write((list) => list.filter((c) => c.id !== id));
   }

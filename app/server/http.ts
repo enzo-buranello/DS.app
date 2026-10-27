@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { proposeSchema } from '../shared/model.js';
 import { Store, StudioError } from './store.js';
@@ -15,6 +15,11 @@ import type { AgentAdapter } from '../../connectors/agents/types.js';
 import { figmaStatus } from '../../connectors/figma/contract.js';
 import { FigmaBridge } from './figma.js';
 import { importItems } from '../shared/figma.js';
+import {
+  componentListSchema,
+  convertFigmaNode,
+  figmaImportItemsSchema,
+} from '../shared/figmaComponents.js';
 import type { RecordInfo } from '../../scripts/runtime.mjs';
 
 export async function createStudioServer(options: {
@@ -145,6 +150,11 @@ export async function createStudioServer(options: {
               },
             });
           }
+          if (url.pathname === '/api/figma/live')
+            return send(200, {
+              ...figma.liveStatus,
+              selection: await figma.selection(),
+            });
           if (url.pathname.startsWith('/api/figma/image/')) {
             const png = await figma.image(url.pathname.split('/').pop()!);
             res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -195,6 +205,38 @@ export async function createStudioServer(options: {
         if (url.pathname === '/api/components/delete') {
           const b = z.object({ id: z.string().uuid() }).strict().parse(body);
           return send(200, await components.remove(b.id));
+        }
+        if (url.pathname === '/api/figma/selection')
+          return send(200, await figma.saveSelection(body));
+        if (url.pathname === '/api/figma/components') {
+          const b = z
+            .object({ pageId: z.string().max(80) })
+            .strict()
+            .parse(body);
+          return send(
+            200,
+            componentListSchema.parse(await figma.command('components', b)),
+          );
+        }
+        if (url.pathname === '/api/figma/import-components') {
+          const b = z
+            .object({
+              pageId: z.string().max(80),
+              ids: z.array(z.string().max(80)).min(1).max(100),
+            })
+            .strict()
+            .parse(body);
+          const { items } = figmaImportItemsSchema.parse(
+            await figma.command('import', b),
+          );
+          const file = figma.liveStatus.file ?? { key: null, name: '' };
+          const tokens = store.snapshot().tokens;
+          return send(
+            200,
+            await components.upsertBySource(
+              items.map((n) => convertFigmaNode(n, tokens, randomUUID(), file)),
+            ),
+          );
         }
         if (url.pathname === '/api/figma/pair-reset') {
           await figma.resetPairing();
