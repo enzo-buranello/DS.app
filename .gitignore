@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.ds-studio/
+.env
+.env.*
+!.env.example
+auth.json
+*credentials*
+*.pem
+*.key
+*.p12
+*.log
+*.tmp
+test-results/
+playwright-report/
+coverage/
+.codex/
+.claude/
+.gemini/
+workspace/private/
+workspace/exports/
+.DS_Store
+Thumbs.db
+
+# Suivi de reprise local, non destiné à la distribution.
+/PROGRESS.md
+
+# Binaire Claude Code local (macOS arm64), non versionné.
+tools/

@@ -1,0 +1,12 @@
+{
+  "name": "DS-Studio",
+  "short_name": "DS-Studio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#243c78",
+  "icons": [
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/assets/icon-1024.png", "sizes": "1024x1024", "type": "image/png" }
+  ]
+}
