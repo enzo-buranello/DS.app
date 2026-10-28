@@ -259,6 +259,25 @@ Preuves : `npm run check`, e2e mis à jour (libellés et paquets repliés).
 Limite connue : les paquets repliés demandent un clic de plus ; la sélection
 du canevas est noire, donc moins visible sur un DS très sombre.
 
+## 2026-10-28 — Trois zones et vocabulaire courant
+
+Problème : panneau flottant étroit, douze paquets et un jargon de designer
+(padding, auto-layout, token, instance) rendaient la création d'un
+composant opaque pour un non-spécialiste.
+
+Décision : la page se divise en trois zones intégrées : édition à gauche
+(Composants/Écrans, Modifier/Tester, éléments), aperçu au centre, paramètres
+à droite (40-50 % de la largeur) avec un seul bouton principal en bas. L'inspecteur
+passe à cinq groupes (Contenu, Disposition, Texte, Style, Avancé replié), sans
+lignes ni textes d'aide ; les libellés utilisent des mots courants. L'état se
+choisit dans un menu déroulant, seul élément superposé avec les menus Figma.
+Le brief devient « Projet ».
+
+Preuves : e2e mis à jour (libellés, menu d'état, réglages d'écran).
+
+Limite connue : la note sur l'envoi du brief à Codex a été retirée de
+l'interface ; la règle reste dans START_HERE.md.
+
 ## À compléter par l’étudiant
 
 Date, problème, options explorées, décision, preuves et limite connue.

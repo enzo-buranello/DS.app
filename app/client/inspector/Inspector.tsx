@@ -46,6 +46,7 @@ import {
 } from '../../shared/edit.js';
 import type { Tokens } from '../../shared/model.js';
 import { request } from '../api.js';
+import { StateMenu } from './StateMenu.js';
 import {
   ColorField,
   LengthField,
@@ -60,14 +61,6 @@ import {
 // valeurs lues sur le rendu (composant + overrides), écrites sur la cible
 // (nœud, ou override de l'instance). Un état (survol…) choisi en haut
 // redirige les modifications vers cet état.
-const STATES: readonly (readonly [StateName | 'base', string])[] = [
-  ['base', 'Défaut'],
-  ['hover', 'Survol'],
-  ['pressed', 'Appuyé'],
-  ['focus', 'Focus'],
-  ['disabled', 'Désactivé'],
-  ['invalid', 'Invalide'],
-];
 const CONTAINERS: DocNode['type'][] = [
   'frame',
   'component',
@@ -98,7 +91,9 @@ export interface InspectorProps {
   /** Nom du calque modifié (titre du panneau). */
   onRename: (name: string) => void;
   /** Commandes de structure (variante, détacher). */
-  onCommand: (name: 'variant' | 'detach') => void;
+  onCommand: (name: 'variant' | 'detach' | 'component') => void;
+  /** Fin de l'édition (bouton principal hors instance et composant). */
+  onDone: () => void;
   /** Taille rendue de l'élément (px), pour passer en taille fixe. */
   measure: () => { w: number; h: number } | null;
 }
@@ -133,47 +128,48 @@ export function Inspector(p: InspectorProps) {
 
   // --- Calque : nom, visibilité, verrou (en-tête) ; le reste suit sa famille ---
   const layer = val('layer');
-  const appearance = (
-    <>
-      <NumberField
-        label="Opacité"
-        unit="%"
-        min={0}
-        max={100}
-        value={Math.round((layer.opacity ?? 1) * 100)}
-        hint={mark('layer', 'opacity', 'Opacité')}
-        onChange={(v) =>
-          set('layer', 'opacity', v === undefined ? undefined : v / 100)
-        }
-      />
-      <Select
-        label="Fusion"
-        value={layer.blend ?? 'normal'}
-        options={[
-          ['normal', 'Normal'],
-          ['multiply', 'Produit'],
-          ['screen', 'Superposition (écran)'],
-          ['overlay', 'Incrustation'],
-          ['darken', 'Obscurcir'],
-          ['lighten', 'Éclaircir'],
-          ['color-dodge', 'Densité couleur −'],
-          ['color-burn', 'Densité couleur +'],
-          ['hard-light', 'Lumière crue'],
-          ['soft-light', 'Lumière tamisée'],
-          ['difference', 'Différence'],
-          ['exclusion', 'Exclusion'],
-          ['hue', 'Teinte'],
-          ['saturation', 'Saturation'],
-          ['color', 'Couleur'],
-          ['luminosity', 'Luminosité'],
-        ]}
-        onChange={(v) => set('layer', 'blend', v)}
-      />
-    </>
+  const opacity = (
+    <NumberField
+      label="Opacité"
+      unit="%"
+      min={0}
+      max={100}
+      value={Math.round((layer.opacity ?? 1) * 100)}
+      hint={mark('layer', 'opacity', 'Opacité')}
+      onChange={(v) =>
+        set('layer', 'opacity', v === undefined ? undefined : v / 100)
+      }
+    />
+  );
+  const blend = (
+    <Select
+      label="Mode de fusion"
+      short="Fusion"
+      value={layer.blend ?? 'normal'}
+      options={[
+        ['normal', 'Normal'],
+        ['multiply', 'Produit'],
+        ['screen', 'Superposition (écran)'],
+        ['overlay', 'Incrustation'],
+        ['darken', 'Obscurcir'],
+        ['lighten', 'Éclaircir'],
+        ['color-dodge', 'Densité couleur −'],
+        ['color-burn', 'Densité couleur +'],
+        ['hard-light', 'Lumière crue'],
+        ['soft-light', 'Lumière tamisée'],
+        ['difference', 'Différence'],
+        ['exclusion', 'Exclusion'],
+        ['hue', 'Teinte'],
+        ['saturation', 'Saturation'],
+        ['color', 'Couleur'],
+        ['luminosity', 'Luminosité'],
+      ]}
+      onChange={(v) => set('layer', 'blend', v)}
+    />
   );
   const clip = container && (
     <Toggle
-      label="Rogner le contenu"
+      label="Masquer ce qui dépasse"
       checked={!!layer.clip}
       onChange={(v) => set('layer', 'clip', v)}
     />
@@ -194,10 +190,6 @@ export function Inspector(p: InspectorProps) {
 
   // --- Instance / composant ---
   if (type === 'instance') sections.push(instanceSection(p, s));
-  if (type === 'component' && s.target.kind === 'node' && !state)
-    sections.push(<ComponentSection key="component" p={p} s={s} />);
-  if (type === 'component-set' && s.target.kind === 'node' && !state)
-    sections.push(setSection(p, s));
 
   // --- Contenu : texte ou champ de saisie ---
   if (isText && !state)
@@ -294,8 +286,7 @@ export function Inspector(p: InspectorProps) {
             onChange={(v) => set('position', 'alignSelf', v)}
           />
           <Toggle
-            label="Position absolue (hors auto-layout)"
-            short="Absolue"
+            label="Position libre"
             checked={absolute}
             onChange={(v) => set('position', 'mode', v ? 'absolute' : 'auto')}
           />
@@ -303,8 +294,7 @@ export function Inspector(p: InspectorProps) {
       )}
       {!parentFlex && (
         <Toggle
-          label="Position absolue"
-          short="Absolue"
+          label="Position libre"
           checked={absolute}
           onChange={(v) => set('position', 'mode', v ? 'absolute' : 'auto')}
         />
@@ -327,8 +317,8 @@ export function Inspector(p: InspectorProps) {
           </div>
           <div className="ins-grid2">
             <Select
-              label="Contrainte horizontale"
-              short="Horizontale"
+              label="Ancrage horizontal"
+              short="Horizontal"
               value={pos.constraintX ?? 'left'}
               options={[
                 ['left', 'Gauche'],
@@ -339,8 +329,8 @@ export function Inspector(p: InspectorProps) {
               onChange={(v) => set('position', 'constraintX', v)}
             />
             <Select
-              label="Contrainte verticale"
-              short="Verticale"
+              label="Ancrage vertical"
+              short="Vertical"
               value={pos.constraintY ?? 'top'}
               options={[
                 ['top', 'Haut'],
@@ -355,8 +345,7 @@ export function Inspector(p: InspectorProps) {
             <div className="ins-grid2">
               {pos.constraintX === 'stretch' && (
                 <NumberField
-                  label="Marge droite"
-                  short="Droite"
+                  label="Distance à droite"
                   unit="px"
                   value={pos.xEnd ?? 0}
                   onChange={(v) => set('position', 'xEnd', v ?? 0)}
@@ -364,8 +353,7 @@ export function Inspector(p: InspectorProps) {
               )}
               {pos.constraintY === 'stretch' && (
                 <NumberField
-                  label="Marge basse"
-                  short="Basse"
+                  label="Distance en bas"
                   unit="px"
                   value={pos.yEnd ?? 0}
                   onChange={(v) => set('position', 'yEnd', v ?? 0)}
@@ -384,9 +372,6 @@ export function Inspector(p: InspectorProps) {
         hint={mark('position', 'rotation', 'Rotation')}
         onChange={(v) => set('position', 'rotation', v || undefined)}
       />
-      {!!pos.rotation && parentFlex && !absolute && (
-        <p className="ins-note">Sans effet sur l’auto-layout en CSS.</p>
-      )}
     </Section>
   );
 
@@ -401,9 +386,9 @@ export function Inspector(p: InspectorProps) {
           value={v?.mode ?? 'auto'}
           options={[
             ['auto', 'Auto'],
-            ['hug', 'Contenu'],
-            ['fill', 'Remplir'],
-            ['fixed', 'Fixe'],
+            ['hug', 'S’adapte au contenu'],
+            ['fill', 'Remplit l’espace'],
+            ['fixed', 'Taille fixe'],
           ]}
           hint={mark('size', which, label)}
           onChange={(mode) => {
@@ -450,22 +435,21 @@ export function Inspector(p: InspectorProps) {
     );
   };
   const dimensions = (
-    <Section title="Dimensions" key="size">
+    <Section title="Taille" key="size">
       {axis('width', 'Largeur')}
       {axis('height', 'Hauteur')}
       <Toggle
-        label="Verrouiller le ratio"
-        short="Ratio"
+        label="Garder les proportions"
         checked={!!size.lockRatio}
         onChange={(v) => set('size', 'lockRatio', v || undefined)}
       />
       <div className="ins-grid2">
         {(
           [
-            ['minWidth', 'Largeur min', 'L min'],
-            ['maxWidth', 'Largeur max', 'L max'],
-            ['minHeight', 'Hauteur min', 'H min'],
-            ['maxHeight', 'Hauteur max', 'H max'],
+            ['minWidth', 'Largeur min', 'Largeur mini'],
+            ['maxWidth', 'Largeur max', 'Largeur maxi'],
+            ['minHeight', 'Hauteur min', 'Hauteur mini'],
+            ['maxHeight', 'Hauteur max', 'Hauteur maxi'],
           ] as const
         ).map(([f, label, short]) => (
           <NumberField
@@ -484,17 +468,15 @@ export function Inspector(p: InspectorProps) {
     </Section>
   );
 
-  // --- Mise en page : auto-layout, rognage ---
-  if (container)
-    sections.push(
-      <LayoutSection key="layout" {...{ p, s, val, set, mark }}>
-        {clip}
-      </LayoutSection>,
-    );
+  // --- Disposition : disposition automatique et taille ---
+  sections.push(
+    <Section title="Disposition" key="layout">
+      {container && <LayoutSection {...{ p, s, val, set, mark }} />}
+      {dimensions}
+    </Section>,
+  );
 
-  sections.push(dimensions);
-
-  // --- Typographie ---
+  // --- Texte ---
   sections.push(
     <TextSection
       key="text"
@@ -503,29 +485,53 @@ export function Inspector(p: InspectorProps) {
     />,
   );
 
-  sections.push(position);
-
-  // --- Apparence : opacité, fusion, rayons ---
+  // --- Style : fond, bordure, arrondi, opacité, ombre ---
   sections.push(
-    <RadiusSection key="radius" {...{ p, s, val, set, mark }}>
-      {appearance}
-    </RadiusSection>,
+    <Section title="Style" key="style">
+      {!isText && <FillsSection {...{ p, s, val, set, mark }} />}
+      {!isText && <StrokeSection {...{ p, s, val, set, mark }} />}
+      {!isText && <RadiusSection {...{ p, s, val, set, mark }} />}
+      {opacity}
+      <EffectsSection {...{ p, s, val, set, mark }} />
+    </Section>,
   );
 
-  // --- Fonds, contour ---
-  if (!isText)
-    sections.push(<FillsSection key="fills" {...{ p, s, val, set, mark }} />);
-  if (!isText)
-    sections.push(<StrokeSection key="stroke" {...{ p, s, val, set, mark }} />);
-
-  // --- Effets ---
-  sections.push(<EffectsSection key="effects" {...{ p, s, val, set, mark }} />);
-
-  // --- Interaction ---
-  if (!state) sections.push(interactionSection(p, s, cursor));
-
-  // --- Avancé : sémantique HTML ---
-  if (!state && type !== 'field') sections.push(semanticsSection(p, s));
+  // --- Avancé : position, interaction, composant, HTML ---
+  const node = s.target.kind === 'node' && !state;
+  sections.push(
+    <Section title="Avancé" key="advanced" open={false}>
+      {position}
+      <div className="ins-sub">
+        {blend}
+        <NumberField
+          label="Lissage des coins"
+          short="Lissage"
+          unit="%"
+          min={0}
+          max={100}
+          value={Math.round((val('radius').smoothing ?? 0) * 100)}
+          onChange={(v) => set('radius', 'smoothing', v ? v / 100 : undefined)}
+        />
+        {clip}
+      </div>
+      {!state && interactionSection(p, s, cursor)}
+      {type === 'component' && node && <ComponentSection p={p} s={s} />}
+      {type === 'component-set' && node && setSection(p, s)}
+      {!state && type !== 'field' && semanticsSection(p, s)}
+      {type === 'instance' && node && (
+        <button type="button" onClick={() => p.onCommand('variant')}>
+          Ajouter une variante
+        </button>
+      )}
+      {node &&
+        !['component', 'component-set', 'instance', 'page'].includes(type) &&
+        !s.inInstance && (
+          <button type="button" onClick={() => p.onCommand('component')}>
+            Transformer en composant
+          </button>
+        )}
+    </Section>,
+  );
 
   const hidden = layer.visible === false;
   return (
@@ -567,19 +573,44 @@ export function Inspector(p: InspectorProps) {
             {layer.locked ? <Lock /> : <LockOpen />}
           </button>
         </div>
-        <Select
-          label="État"
-          value={state ?? 'base'}
-          options={STATES.filter(([v]) => v !== 'invalid' || type === 'field')}
-          onChange={(v) => p.onState(v === 'base' ? null : (v as StateName))}
+        <StateMenu
+          value={state}
+          onChange={p.onState}
+          withInvalid={type === 'field'}
+          modified={
+            new Set(
+              Object.entries(s.resolved.states ?? {})
+                .filter(([, v]) => v && Object.keys(v).length)
+                .map(([k]) => k as StateName),
+            )
+          }
         />
-        {state && (
-          <p className="ins-note">
-            Réglages de l’état « {STATES.find(([v]) => v === state)?.[1]} ».
-          </p>
-        )}
       </div>
       {sections}
+      <div className="panel-cta">
+        {type === 'instance' ? (
+          <button
+            type="button"
+            className="studio-primary"
+            disabled={!overrideCount(s)}
+            onClick={p.onApply}
+          >
+            Appliquer au composant
+          </button>
+        ) : type === 'component' && s.target.kind === 'node' && !state ? (
+          <button
+            type="button"
+            className="studio-primary"
+            onClick={() => p.onCommand('variant')}
+          >
+            Ajouter une variante
+          </button>
+        ) : (
+          <button type="button" className="studio-primary" onClick={p.onDone}>
+            Terminer
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -622,12 +653,15 @@ function LayoutSection({
       : (l.alignCross ?? 'start');
   return (
     <Section
-      title="Mise en page"
-      badge={on ? 'Auto-layout' : undefined}
+      title="Disposition automatique"
       actions={
         <button
           type="button"
-          aria-label={on ? 'Retirer l’auto-layout' : 'Ajouter un auto-layout'}
+          aria-label={
+            on
+              ? 'Retirer la disposition automatique'
+              : 'Ajouter une disposition automatique'
+          }
           onClick={() => set('layout', 'mode', on ? 'none' : 'vertical')}
         >
           {on ? <Minus /> : <Plus />}
@@ -637,14 +671,14 @@ function LayoutSection({
       {on && (
         <>
           <Select
-            label="Direction"
+            label="Sens"
             value={l.wrap ? 'wrap' : l.mode}
             options={[
-              ['horizontal', 'Horizontale →'],
-              ['vertical', 'Verticale ↓'],
-              ['wrap', 'Horizontale avec retour'],
+              ['horizontal', 'En ligne'],
+              ['vertical', 'En colonne'],
+              ['wrap', 'En ligne, avec retour'],
             ]}
-            hint={mark('layout', 'mode', 'Direction')}
+            hint={mark('layout', 'mode', 'Sens')}
             onChange={(v) =>
               set('layout', null, {
                 ...l,
@@ -654,14 +688,14 @@ function LayoutSection({
             }
           />
           <LengthField
-            label="Espacement"
+            label="Écart entre éléments"
             value={l.gap === 'auto' ? undefined : l.gap}
             tokens={p.tokens}
             keys={lengthTokenKeys}
-            hint={mark('layout', 'gap', 'Espacement')}
+            hint={mark('layout', 'gap', 'Écart entre éléments')}
             extra={{
               value: 'auto',
-              label: 'Auto (répartir)',
+              label: 'Répartir',
               selected: l.gap === 'auto',
               pick: () => set('layout', 'gap', 'auto'),
             }}
@@ -669,8 +703,7 @@ function LayoutSection({
           />
           {l.wrap && (
             <LengthField
-              label="Espacement des lignes"
-              short="Lignes"
+              label="Écart entre lignes"
               value={l.rowGap}
               tokens={p.tokens}
               keys={lengthTokenKeys}
@@ -710,8 +743,7 @@ function LayoutSection({
           </div>
           <div className="ins-row">
             <Toggle
-              label="Étirer les enfants"
-              short="Étirer"
+              label="Étirer les éléments"
               checked={l.alignCross === 'stretch'}
               onChange={(v) =>
                 set('layout', 'alignCross', v ? 'stretch' : 'start')
@@ -719,7 +751,7 @@ function LayoutSection({
             />
             {horizontal && (
               <Toggle
-                label="Ligne de base"
+                label="Aligner sur le texte"
                 checked={l.alignCross === 'baseline'}
                 onChange={(v) =>
                   set('layout', 'alignCross', v ? 'baseline' : 'start')
@@ -727,15 +759,14 @@ function LayoutSection({
               />
             )}
             <Toggle
-              label="Premier au premier plan"
-              short="Premier plan"
+              label="Premier élément devant"
               checked={!!l.reverseZ}
               onChange={(v) => set('layout', 'reverseZ', v || undefined)}
             />
           </div>
           <div className="ins-row">
             <Toggle
-              label="Marges par côté"
+              label="Espacement par côté"
               short="Par côté"
               checked={perSide}
               onChange={setPerSide}
@@ -745,7 +776,7 @@ function LayoutSection({
             sides.map((k) => (
               <LengthField
                 key={k}
-                label={`Marge ${SIDE[k]}`}
+                label={`Espacement ${SIDE[k]}`}
                 short={SIDE[k][0].toUpperCase() + SIDE[k].slice(1)}
                 value={pad[k]}
                 tokens={p.tokens}
@@ -755,12 +786,11 @@ function LayoutSection({
             ))
           ) : (
             <LengthField
-              label="Marge intérieure"
-              short="Marge"
+              label="Espacement intérieur"
               value={pad.top}
               tokens={p.tokens}
               keys={lengthTokenKeys}
-              hint={mark('layout', 'padding', 'Marge intérieure')}
+              hint={mark('layout', 'padding', 'Espacement intérieur')}
               onChange={(v) => {
                 const x = v ?? zero;
                 setPad({ top: x, right: x, bottom: x, left: x });
@@ -774,17 +804,9 @@ function LayoutSection({
   );
 }
 
-/** Apparence : opacité et fusion du calque, puis rayons (hors texte). */
-function RadiusSection({
-  p,
-  s,
-  val,
-  set,
-  mark,
-  children,
-}: SectionArgs & { children: ReactNode }) {
+/** Arrondi des coins (hors texte). */
+function RadiusSection({ p, val, set, mark }: SectionArgs) {
   const r = val('radius');
-  const isText = s.node.type === 'text';
   const [perCorner, setPerCorner] = useState(
     () => new Set(corners.map((c) => JSON.stringify(r[c] ?? zero))).size > 1,
   );
@@ -795,62 +817,38 @@ function RadiusSection({
       ...patch,
     });
   return (
-    <Section title="Apparence" open={false}>
-      {children}
-      {!isText && (
-        <>
-          <Toggle
-            label="Rayon par coin"
-            short="Par coin"
-            checked={perCorner}
-            onChange={setPerCorner}
+    <Section title="Arrondi">
+      {perCorner ? (
+        corners.map((c) => (
+          <LengthField
+            key={c}
+            label={`Arrondi ${CORNER[c]}`}
+            short={CORNER[c][0].toUpperCase() + CORNER[c].slice(1)}
+            value={r[c]}
+            tokens={p.tokens}
+            keys={lengthTokenKeys}
+            onChange={(v) => write({ [c]: v ?? zero })}
           />
-          {perCorner ? (
-            corners.map((c) => (
-              <LengthField
-                key={c}
-                label={`Rayon ${CORNER[c]}`}
-                short={CORNER[c][0].toUpperCase() + CORNER[c].slice(1)}
-                value={r[c]}
-                tokens={p.tokens}
-                keys={lengthTokenKeys}
-                onChange={(v) => write({ [c]: v ?? zero })}
-              />
-            ))
-          ) : (
-            <LengthField
-              label="Rayon"
-              value={r.topLeft}
-              tokens={p.tokens}
-              keys={lengthTokenKeys}
-              hint={mark('radius', null, 'Rayon')}
-              onChange={(v) => {
-                const x = v ?? zero;
-                write({
-                  topLeft: x,
-                  topRight: x,
-                  bottomRight: x,
-                  bottomLeft: x,
-                });
-              }}
-            />
-          )}
-          <NumberField
-            label="Lissage des coins"
-            short="Lissage"
-            unit="%"
-            min={0}
-            max={100}
-            value={Math.round((r.smoothing ?? 0) * 100)}
-            onChange={(v) =>
-              set('radius', 'smoothing', v ? v / 100 : undefined)
-            }
-          />
-          {!!r.smoothing && (
-            <p className="ins-note">Visible dans Figma uniquement.</p>
-          )}
-        </>
+        ))
+      ) : (
+        <LengthField
+          label="Arrondi"
+          value={r.topLeft}
+          tokens={p.tokens}
+          keys={lengthTokenKeys}
+          hint={mark('radius', null, 'Arrondi')}
+          onChange={(v) => {
+            const x = v ?? zero;
+            write({ topLeft: x, topRight: x, bottomRight: x, bottomLeft: x });
+          }}
+        />
       )}
+      <Toggle
+        label="Arrondi par coin"
+        short="Par coin"
+        checked={perCorner}
+        onChange={setPerCorner}
+      />
     </Section>
   );
 }
@@ -888,8 +886,7 @@ function FillsSection({ p, s, val, set, mark }: SectionArgs) {
   void val;
   return (
     <Section
-      title="Fond"
-      open={false}
+      title="Couleur de fond"
       actions={
         <>
           {mark('fills', null, 'Fond')}
@@ -1089,12 +1086,6 @@ function FillsSection({ p, s, val, set, mark }: SectionArgs) {
                 onChange={(v) => update({ opacity: (v ?? 100) / 100 })}
               />
             )}
-            {f.type === 'image' && f.opacity < 1 && (
-              <p className="ins-note">
-                L’opacité d’une image n’a pas d’équivalent CSS par couche :
-                exportée vers Figma, non visible dans l’aperçu.
-              </p>
-            )}
             <input
               id={`fill-file-${i}`}
               type="file"
@@ -1145,14 +1136,13 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
         : 1;
   return (
     <Section
-      title="Contour"
-      open={false}
+      title="Bordure"
       actions={
         <>
           {mark('stroke', null, 'Contour')}
           <button
             type="button"
-            aria-label={st ? 'Retirer le contour' : 'Ajouter un contour'}
+            aria-label={st ? 'Retirer la bordure' : 'Ajouter une bordure'}
             onClick={() =>
               set(
                 'stroke',
@@ -1177,7 +1167,7 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
       {st && (
         <>
           <ColorField
-            label="Contour"
+            label="Bordure"
             short="Couleur"
             value={st.color}
             tokens={p.tokens}
@@ -1222,7 +1212,8 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
             </div>
           ) : (
             <NumberField
-              label="Épaisseur"
+              label="Épaisseur de bordure"
+              short="Épaisseur"
               unit="px"
               min={0}
               max={64}
@@ -1232,7 +1223,7 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
           )}
           <div className="ins-grid2">
             <Select
-              label="Style du contour"
+              label="Style de bordure"
               short="Style"
               value={st.style}
               options={[
@@ -1243,7 +1234,7 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
               onChange={(v) => set('stroke', 'style', v)}
             />
             <Select
-              label="Position du contour"
+              label="Position de la bordure"
               short="Position"
               value={st.align}
               options={[
@@ -1254,9 +1245,6 @@ function StrokeSection({ p, s, set, mark }: SectionArgs) {
               onChange={(v) => set('stroke', 'align', v)}
             />
           </div>
-          {perSide && st.align !== 'inside' && (
-            <p className="ins-note">Aperçu : épaisseur max sur tout le tour.</p>
-          )}
         </>
       )}
     </Section>
@@ -1277,8 +1265,7 @@ function EffectsSection({ p, s, set, mark }: SectionArgs) {
   });
   return (
     <Section
-      title="Effets"
-      open={false}
+      title="Ombre et flou"
       actions={
         <>
           {mark('effects', null, 'Effets')}
@@ -1397,11 +1384,7 @@ function TextSection({
   const isText = s.node.type === 'text';
   const lh = t.lineHeight;
   return (
-    <Section
-      title="Typographie"
-      badge={isText ? undefined : 'Héritée'}
-      open={open}
-    >
+    <Section title="Texte" badge={isText ? undefined : 'Héritée'} open={open}>
       <Select
         label="Police"
         value={
@@ -1422,12 +1405,13 @@ function TextSection({
       />
       <div className="ins-grid2">
         <Select
-          label="Graisse"
+          label="Épaisseur du texte"
+          short="Épaisseur"
           value={t.weight ? String(t.weight) : undefined}
           options={[100, 200, 300, 400, 500, 600, 650, 700, 800, 900].map(
             (w) => [String(w), String(w)] as const,
           )}
-          hint={mark('text', 'weight', 'Graisse')}
+          hint={mark('text', 'weight', 'Épaisseur du texte')}
           onChange={(v) => set('text', 'weight', Number(v))}
         />
         <LengthField
@@ -1452,7 +1436,7 @@ function TextSection({
       />
       <div className="ins-grid2">
         <Select
-          label="Interlignage"
+          label="Hauteur de ligne"
           value={!lh ? 'auto' : 'ratio' in lh ? 'ratio' : 'px'}
           options={[
             ['auto', 'Auto'],
@@ -1473,7 +1457,7 @@ function TextSection({
         />
         {lh && (
           <NumberField
-            label="Interlignage : valeur"
+            label="Hauteur de ligne : valeur"
             short="Valeur"
             step={'ratio' in lh ? 0.05 : 1}
             min={0}
@@ -1530,7 +1514,7 @@ function TextSection({
       </div>
       <div className="ins-grid2">
         <Select
-          label="Casse"
+          label="Majuscules"
           value={t.case ?? 'none'}
           options={[
             ['none', 'Telle quelle'],
@@ -1541,7 +1525,7 @@ function TextSection({
           onChange={(v) => set('text', 'case', v)}
         />
         <Select
-          label="Décoration"
+          label="Soulignement"
           value={t.decoration ?? 'none'}
           options={[
             ['none', 'Aucune'],
@@ -1623,10 +1607,7 @@ function instanceSection(p: InspectorProps, s: Selected) {
       },
     ]);
   return (
-    <Section title="Instance" key="instance">
-      <p className="muted">
-        Composant : {shown ? componentLabel(doc, shown) : source?.name}
-      </p>
+    <Section title="Composant" key="instance">
       {Object.entries(options).map(([prop, values]) => (
         <Select
           key={prop}
@@ -1674,7 +1655,7 @@ function instanceSection(p: InspectorProps, s: Selected) {
       <div className="override-bar" role="status">
         {count ? (
           <span className="override-badge">
-            {count} override{count > 1 ? 's' : ''}
+            {count} modification{count > 1 ? 's' : ''}
           </span>
         ) : (
           <span className="muted">Identique au composant</span>
@@ -1686,18 +1667,10 @@ function instanceSection(p: InspectorProps, s: Selected) {
         >
           Réinitialiser
         </button>
-        <button
-          type="button"
-          className="studio-primary"
-          disabled={!count}
-          onClick={p.onApply}
-        >
-          Appliquer au composant
-        </button>
       </div>
       {s.target.kind === 'node' && (
         <button type="button" onClick={() => p.onCommand('detach')}>
-          Détacher l’instance
+          Dissocier du composant
         </button>
       )}
     </Section>
@@ -1724,8 +1697,7 @@ function ComponentSection({ p, s }: { p: InspectorProps; s: Selected }) {
         : true,
   );
   return (
-    <Section title="Composant" badge="Maître">
-      <p className="ins-note">Se propage aux instances.</p>
+    <Section title="Propriétés du composant">
       {node.variant &&
         Object.entries(node.variant).map(([k, v]) => (
           <label className="ins-field" key={k}>
@@ -1741,9 +1713,6 @@ function ComponentSection({ p, s }: { p: InspectorProps; s: Selected }) {
             />
           </label>
         ))}
-      <button type="button" onClick={() => p.onCommand('variant')}>
-        Ajouter une variante
-      </button>
       {props.map(([key, def]) => (
         <div className="ins-item" key={key}>
           <div className="ins-item-head">
@@ -1876,7 +1845,6 @@ function setSection(p: InspectorProps, s: Selected) {
   const options = variantOptions(p.doc, p.doc.nodes[s.node.children[0]]);
   return (
     <Section title="Variantes" key="set">
-      <p className="muted">{s.node.children.length} variante(s)</p>
       {Object.entries(options).map(([prop, values]) => (
         <label className="ins-field" key={prop}>
           <span className="ins-label">
@@ -2038,7 +2006,7 @@ function semanticsSection(p: InspectorProps, s: Selected) {
       setFacet(p.doc, s.key, 'semantics', { ...s.own.semantics, ...patch }),
     );
   return (
-    <Section title="Avancé" key="semantics" open={false} badge="HTML">
+    <Section title="HTML" key="semantics">
       <Select
         label="Balise"
         value={sem.tag ?? (s.node.type === 'text' ? 'span' : 'div')}

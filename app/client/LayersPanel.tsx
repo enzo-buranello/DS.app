@@ -9,15 +9,12 @@ import {
   EyeSlash,
   Hash,
   Image as ImageIcon,
-  LinkBreak,
   Lock,
   LockOpen,
   PenNib,
   Plus,
   Rectangle,
-  Rows,
   SelectionAll,
-  StackPlus,
   SquaresFour,
   Textbox,
   TextT,
@@ -265,7 +262,7 @@ export function LayersPanel({
   };
 
   return (
-    <aside className="layers" aria-label="Calques">
+    <aside className="layers" aria-label="Éléments">
       {screens && (
         <section className="layers-screens" aria-label="Écrans">
           <div className="layers-head">
@@ -339,13 +336,13 @@ export function LayersPanel({
         </section>
       )}
       <div className="layers-head">
-        <h3>Calques</h3>
+        <h3>Éléments</h3>
       </div>
-      <div className="layers-toolbar" role="toolbar" aria-label="Insérer">
+      <div className="layers-toolbar" role="toolbar" aria-label="Ajouter">
         <button
           type="button"
-          title="Cadre (F)"
-          aria-label="Insérer un cadre"
+          title="Bloc (F)"
+          aria-label="Ajouter un bloc"
           onClick={() => onLayer({ type: 'insert', kind: 'frame' })}
         >
           <Hash />
@@ -353,15 +350,15 @@ export function LayersPanel({
         <button
           type="button"
           title="Texte (T)"
-          aria-label="Insérer un texte"
+          aria-label="Ajouter un texte"
           onClick={() => onLayer({ type: 'insert', kind: 'text' })}
         >
           <TextT />
         </button>
         <button
           type="button"
-          title="Rectangle (R)"
-          aria-label="Insérer un rectangle"
+          title="Forme (R)"
+          aria-label="Ajouter une forme"
           onClick={() => onLayer({ type: 'insert', kind: 'rect' })}
         >
           <Rectangle />
@@ -369,13 +366,13 @@ export function LayersPanel({
         <button
           type="button"
           title="Image"
-          aria-label="Insérer une image"
+          aria-label="Ajouter une image"
           onClick={() => onLayer({ type: 'insert', kind: 'image' })}
         >
           <ImageIcon />
         </button>
         <select
-          aria-label="Insérer une instance"
+          aria-label="Ajouter un composant"
           value=""
           onChange={(e) =>
             e.target.value &&
@@ -386,7 +383,7 @@ export function LayersPanel({
             })
           }
         >
-          <option value="">Instance…</option>
+          <option value="">Composant…</option>
           {components.map((c) => {
             const set = c.parent ? doc.nodes[c.parent] : undefined;
             const label =
@@ -401,16 +398,12 @@ export function LayersPanel({
           })}
         </select>
       </div>
-      <div className="layers-toolbar" role="toolbar" aria-label="Structure">
+      <div className="layers-toolbar" role="toolbar" aria-label="Élément">
         {(
           [
             ['duplicate', 'Dupliquer (Cmd+D)', <Copy />],
             ['delete', 'Supprimer (Suppr)', <Trash />],
             ['group', 'Grouper (Cmd+G)', <SelectionAll />],
-            ['auto-layout', 'Auto-layout (Maj+A)', <Rows />],
-            ['component', 'Créer un composant (Cmd+Alt+K)', <Cube />],
-            ['variant', 'Ajouter une variante', <StackPlus />],
-            ['detach', 'Détacher l’instance', <LinkBreak />],
           ] as const
         ).map(([name, label, icon]) => (
           <button

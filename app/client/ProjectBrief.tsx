@@ -27,10 +27,8 @@ export default function ProjectBrief() {
     <details className="project-brief">
       <summary>
         <CaretRight className="chevron" />
-        <span>Mon PFE</span>
-        <span className="badge">Privé</span>
+        <span>Projet</span>
       </summary>
-      <p>Stocké sur ce poste, hors Git.</p>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -46,7 +44,7 @@ export default function ProjectBrief() {
             setNotice('');
             try {
               setSnapshot(await request('project', snapshot));
-              setNotice('Brief enregistré sur ce poste.');
+              setNotice('Projet enregistré.');
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -56,10 +54,10 @@ export default function ProjectBrief() {
         >
           {(
             [
-              ['name', 'Nom du PFE', 100],
+              ['name', 'Nom du projet', 100],
               ['audience', 'Public concerné', 1000],
-              ['goal', 'Objectif et critères de réussite', 2000],
-              ['figmaUrl', 'Lien Figma (facultatif)', 500],
+              ['goal', 'Objectif', 2000],
+              ['figmaUrl', 'Lien Figma', 500],
             ] as const
           ).map(([key, label, max]) => (
             <label className="field" key={key}>
@@ -93,7 +91,7 @@ export default function ProjectBrief() {
             </label>
           ))}
           <button disabled={busy}>
-            {busy ? 'Enregistrement…' : 'Enregistrer le brief'}
+            {busy ? 'Enregistrement…' : 'Enregistrer le projet'}
           </button>
         </form>
       )}
@@ -108,8 +106,8 @@ export default function ProjectBrief() {
           void request<ProjectSnapshot>('project')
             .then(({ project: p }) => {
               downloadText(
-                'PFE-brief.md',
-                `# ${p.name || 'Mon PFE'}\n\n## Public\n\n${p.audience}\n\n## Objectif\n\n${p.goal}\n\n## Repère Figma (sans connexion)\n\n${p.figmaUrl}\n`,
+                'projet.md',
+                `# ${p.name || 'Projet'}\n\n## Public\n\n${p.audience}\n\n## Objectif\n\n${p.goal}\n\n## Repère Figma (sans connexion)\n\n${p.figmaUrl}\n`,
               );
             })
             .catch((e) => setError(e.message));
@@ -118,9 +116,6 @@ export default function ProjectBrief() {
         <DownloadSimple />
         Exporter (.md)
       </button>
-      <p className="privacy-note">
-        Envoyé à l’agent avec Codex : aucune donnée sensible.
-      </p>
     </details>
   );
 }

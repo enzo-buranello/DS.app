@@ -1,14 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { seedDoc } from '../../app/shared/seedDoc.js';
 
-// Les paquets de détail de l'inspecteur sont repliés par défaut ; les parcours
+// Le groupe Avancé de l'inspecteur est replié par défaut ; les parcours
 // ci-dessous les manipulent tous, on les ouvre (même mécanisme que l'utilisateur).
-// Le test « paquets repliés par défaut » vérifie l'état initial sans ce réglage.
+// Le test « groupes essentiels dépliés » vérifie l'état initial sans ce réglage.
 test.beforeEach(async ({ page }, info) => {
-  if (info.title.startsWith('inspecteur : paquets')) return;
+  if (info.title.startsWith('inspecteur : groupes')) return;
   await page.addInitScript(() => {
-    const titles = ['Position', 'Apparence', 'Fond', 'Contour', 'Effets'];
-    const all = [...titles, 'Interaction', 'Avancé', 'Typographie'];
+    const all = ['Disposition', 'Texte', 'Style', 'Avancé'];
     localStorage.setItem(
       'ds-studio-inspector-sections',
       JSON.stringify(Object.fromEntries(all.map((t) => [t, true]))),
@@ -21,11 +20,11 @@ test('boucle centrale réelle : diff, validation, propagation, recharge, annulat
 }) => {
   await page.goto('/');
   const dsToggle = page.getByRole('button', {
-    name: 'Design System',
+    name: 'Composants',
     exact: true,
   });
   const previewToggle = page.getByRole('button', {
-    name: 'Aperçu',
+    name: 'Écrans',
     exact: true,
   });
   await expect(dsToggle).toHaveAttribute('aria-pressed', 'true');
@@ -64,7 +63,7 @@ test('boucle centrale réelle : diff, validation, propagation, recharge, annulat
   await page.reload();
   await expect(mainButton).toHaveCSS('background-color', 'rgb(138, 59, 32)');
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('space.md');
   await page.getByLabel('Valeur du token').fill('22');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
@@ -92,7 +91,7 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
   for (const [value, width] of [
     ['0', 320],
@@ -101,10 +100,10 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
     ['3', 1024],
   ] as const) {
     await page
-      .getByRole('combobox', { name: 'Largeur d’écran', exact: true })
+      .getByRole('combobox', { name: 'Taille d’écran', exact: true })
       .selectOption(value);
     await expect(
-      page.getByRole('button', { name: 'Aperçu', exact: true }),
+      page.getByRole('button', { name: 'Écrans', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('iframe')).toHaveAttribute(
       'width',
@@ -137,7 +136,7 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
     expect(columns).toBe(width >= 700 ? 2 : 1);
   }
   await page
-    .getByRole('combobox', { name: 'Largeur d’écran', exact: true })
+    .getByRole('combobox', { name: 'Taille d’écran', exact: true })
     .selectOption('1');
   // Interactions natives : prototype en mode Test (P).
   await page.keyboard.press('p');
@@ -156,7 +155,7 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
     frame.getByText('Vos ateliers favoris apparaîtront ici.'),
   ).toBeVisible();
   await page
-    .getByRole('combobox', { name: 'Scénario', exact: true })
+    .getByRole('combobox', { name: 'Écran', exact: true })
     .selectOption('form');
   await frame.getByLabel('Votre prénom').fill('Camille');
   await frame.getByLabel('Adresse e-mail').fill('camille@example.com');
@@ -191,15 +190,9 @@ test('V2 : contraste proposé immédiat sans modifier les composants enregistré
 }) => {
   await page.goto('/');
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('color.brand');
   await page.getByLabel('Valeur du token').fill('#FFFFFF');
-  await expect(
-    page.getByText('Contraste proposé :', { exact: false }),
-  ).toContainText('1.00:1');
-  await expect(
-    page.getByText('Contraste proposé :', { exact: false }),
-  ).toContainText('Contraste à améliorer');
   await expect(page.getByRole('dialog')).not.toBeVisible();
   const current = await (await page.request.get('/api/state')).json();
   expect(current.tokens['color.brand'].$value).not.toBe('#FFFFFF');
@@ -209,21 +202,21 @@ test('V2 : brief privé persistant, indépendant du mode IA', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByText('Mon PFE', { exact: true }).click();
+  await page.getByText('Projet', { exact: true }).click();
   await page
-    .getByLabel('Nom du PFE', { exact: true })
+    .getByLabel('Nom du projet', { exact: true })
     .fill('Mon atelier accessible');
   await page
     .getByLabel('Public concerné', { exact: true })
     .fill('Étudiants en mobilité');
   await page
-    .getByLabel('Objectif et critères de réussite', { exact: true })
+    .getByLabel('Objectif', { exact: true })
     .fill('Réserver en moins de trois étapes');
-  await page.getByRole('button', { name: 'Enregistrer le brief' }).click();
-  await expect(page.getByText('Brief enregistré sur ce poste.')).toBeVisible();
+  await page.getByRole('button', { name: 'Enregistrer le projet' }).click();
+  await expect(page.getByText('Projet enregistré.')).toBeVisible();
   await page.reload();
-  await page.getByText('Mon PFE', { exact: true }).click();
-  await expect(page.getByLabel('Nom du PFE', { exact: true })).toHaveValue(
+  await page.getByText('Projet', { exact: true }).click();
+  await expect(page.getByLabel('Nom du projet', { exact: true })).toHaveValue(
     'Mon atelier accessible',
   );
   await expect(
@@ -236,18 +229,18 @@ test('V2 : recherche, brouillon récupéré après recharge et abandon sans écr
 }) => {
   await page.goto('/');
   const before = await (await page.request.get('/api/state')).json();
-  await page.getByLabel('Rechercher un token').fill('space');
+  await page.getByLabel('Rechercher dans le thème').fill('space');
   await expect(
     page.getByText('3 résultat(s).', { exact: false }),
   ).toBeVisible();
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('space.lg');
   await page.getByLabel('Valeur du token').fill('31');
   await expect(page.getByText('Brouillon', { exact: true })).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole('combobox', { name: 'Token', exact: true }),
+    page.getByRole('combobox', { name: 'Élément du thème', exact: true }),
   ).toHaveValue('space.lg');
   await expect(page.getByLabel('Valeur du token')).toHaveValue('31');
   await expect(
@@ -268,14 +261,14 @@ test('V2 : conflit multi-onglets visible dans le diff, aucune perte de données'
 }) => {
   await page.goto('/');
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('color.brand');
   await page.getByLabel('Valeur du token').fill('#223355');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
   const other = await context.newPage();
   await other.goto('/');
   await other
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('color.brand');
   await other.getByLabel('Valeur du token').fill('#664422');
   await other.getByRole('button', { name: 'Proposer', exact: true }).click();
@@ -298,7 +291,7 @@ test('V2 : capacité de session périmée simulée sans rejeu ambigu', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('heading', { name: 'Tokens', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Thème', exact: true }).waitFor();
   const boot = await (await page.request.get('/api/bootstrap')).json();
   // Un seul refus certain avant mutation, comme une capacité périmée après restart.
   let requests = 0;
@@ -316,7 +309,7 @@ test('V2 : capacité de session périmée simulée sans rejeu ambigu', async ({
     return route.continue();
   });
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('color.focus');
   await page.getByLabel('Valeur du token').fill('#776622');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
@@ -338,14 +331,14 @@ test('V2 : clavier, 1024 px et absence de stockage navigateur', async ({
   });
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto('/');
-  await page.getByRole('heading', { name: 'Tokens', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Thème', exact: true }).waitFor();
   await page.keyboard.press('Tab');
   await expect(
     page.getByRole('link', { name: 'Aller aux tokens' }),
   ).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(
-    page.getByRole('heading', { name: 'Tokens', exact: true }),
+    page.getByRole('heading', { name: 'Thème', exact: true }),
   ).toBeFocused();
   await page.getByLabel('Valeur du token').fill('#114477');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
@@ -381,7 +374,8 @@ const measureFit = (page: Page) =>
         c.right <= f.right + 1 &&
         c.bottom <= f.bottom + 1,
       stageAboveBar: f.bottom <= bar.top,
-      settingsAboveBar: settings.bottom <= bar.top,
+      // Panneau intégré : à droite de la scène et de la barre de prompt.
+      settingsBesideBar: settings.left >= bar.right - 1,
       settingsRightOfStage: settings.left >= f.right,
       width: f.width,
     };
@@ -400,7 +394,7 @@ async function expectFits(page: Page) {
     pageScroll: true,
     inside: true,
     stageAboveBar: true,
-    settingsAboveBar: true,
+    settingsBesideBar: true,
     settingsRightOfStage: true,
   });
   return box;
@@ -415,7 +409,7 @@ test('layout v3 : scène sans défilement, panneau repliable, captures 1440 × 9
   await expectFits(page);
   await page.screenshot({ path: 'test-results/layout-design-system.png' });
 
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
   await frame.getByRole('button', { name: 'Réserver une place' }).waitFor();
   // L'iframe prend la hauteur de son contenu : pas de défilement interne.
@@ -433,7 +427,7 @@ test('layout v3 : scène sans défilement, panneau repliable, captures 1440 × 9
   await expectFits(page);
   await page.screenshot({ path: 'test-results/layout-apercu.png' });
   await page
-    .getByRole('combobox', { name: 'Largeur d’écran', exact: true })
+    .getByRole('combobox', { name: 'Taille d’écran', exact: true })
     .selectOption('3');
   await expect(page.locator('iframe')).toHaveAttribute('width', '1024');
   await expectFits(page);
@@ -460,9 +454,7 @@ test('layout v3 : scène sans défilement, panneau repliable, captures 1440 × 9
   await page.setViewportSize({ width: 1024, height: 700 });
   await expect.poll(scaleText).not.toBe(before);
   await expectFits(page);
-  await page
-    .getByRole('button', { name: 'Design System', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Composants', exact: true }).click();
   await page.locator('.stage-catalogue').waitFor();
   await expectFits(page);
 });
@@ -470,8 +462,8 @@ test('layout v3 : scène sans défilement, panneau repliable, captures 1440 × 9
 test('layout v3 : toggle et panneau au clavier', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
-  const ds = page.getByRole('button', { name: 'Design System', exact: true });
-  const preview = page.getByRole('button', { name: 'Aperçu', exact: true });
+  const ds = page.getByRole('button', { name: 'Composants', exact: true });
+  const preview = page.getByRole('button', { name: 'Écrans', exact: true });
   await ds.focus();
   await page.keyboard.press('Tab');
   await expect(preview).toBeFocused();
@@ -489,7 +481,7 @@ test('layout v3 : toggle et panneau au clavier', async ({ page }) => {
     page.getByRole('button', { name: 'Paramètres', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Rechercher un token')).toBeVisible();
+  await expect(page.getByLabel('Rechercher dans le thème')).toBeVisible();
 });
 
 test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, écriture directe, arrêt et mode manuel', async ({
@@ -554,7 +546,7 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, écriture directe
   // Appliqué directement, sans diff, puis annulable par Cmd+Z.
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(page.getByText('Modification appliquée.')).toBeVisible();
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('ControlOrMeta+z');
   await expect
     .poll(
@@ -589,7 +581,7 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, écriture directe
   await expect(input).toBeDisabled();
   await page.getByRole('button', { name: 'Ouvrir les tokens' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Tokens', exact: true }),
+    page.getByRole('heading', { name: 'Thème', exact: true }),
   ).toBeFocused();
   // Écriture puis annulation : deux révisions, valeur d'origine.
   expect((await (await page.request.get('/api/state')).json()).revision).toBe(
@@ -637,42 +629,42 @@ test('créer un composant : inspecteur complet en direct, tokens, états, persis
   await expect(combo('Fond 1')).toHaveValue('color.brand');
 
   // Contour.
-  await page.getByRole('button', { name: 'Ajouter un contour' }).click();
-  await combo('Contour').selectOption('color.danger');
-  await field('Épaisseur').fill('3');
-  await combo('Style du contour').selectOption('dashed');
+  await page.getByRole('button', { name: 'Ajouter une bordure' }).click();
+  await combo('Bordure').selectOption('color.danger');
+  await field('Épaisseur de bordure').fill('3');
+  await combo('Style de bordure').selectOption('dashed');
   await expect(comp).toHaveCSS('border-top-width', '3px');
   await expect(comp).toHaveCSS('border-top-style', 'dashed');
   await expect(comp).toHaveCSS('border-top-color', 'rgb(180, 35, 62)');
 
   // Rayons : global puis par coin.
-  await combo('Rayon').selectOption('px');
-  await field('Rayon : valeur').fill('12');
+  await combo('Arrondi').selectOption('px');
+  await field('Arrondi : valeur').fill('12');
   await expect(comp).toHaveCSS('border-top-left-radius', '12px');
-  await page.getByLabel('Rayon par coin').click();
-  await combo('Rayon bas droit').selectOption('px');
-  await field('Rayon bas droit : valeur').fill('0');
+  await page.getByLabel('Arrondi par coin').click();
+  await combo('Arrondi bas droit').selectOption('px');
+  await field('Arrondi bas droit : valeur').fill('0');
   await expect(comp).toHaveCSS('border-bottom-right-radius', '0px');
   await expect(comp).toHaveCSS('border-top-left-radius', '12px');
 
   // Auto-layout : direction, espacement, marges par côté, alignement 9 positions.
-  await combo('Direction').selectOption('vertical');
+  await combo('Sens').selectOption('vertical');
   await expect(comp).toHaveCSS('flex-direction', 'column');
-  await combo('Espacement').selectOption('space.lg');
+  await combo('Écart entre éléments').selectOption('space.lg');
   await expect(comp).toHaveCSS('row-gap', '24px');
   // Marges différentes selon les côtés : l'inspecteur s'ouvre « par côté ».
-  await expect(page.getByLabel('Marges par côté')).toBeChecked();
-  await page.getByLabel('Marges par côté').click();
-  await combo('Marge intérieure').selectOption('space.lg');
-  await page.getByLabel('Marges par côté').click();
-  await combo('Marge gauche').selectOption('px');
-  await field('Marge gauche : valeur').fill('40');
+  await expect(page.getByLabel('Espacement par côté')).toBeChecked();
+  await page.getByLabel('Espacement par côté').click();
+  await combo('Espacement intérieur').selectOption('space.lg');
+  await page.getByLabel('Espacement par côté').click();
+  await combo('Espacement gauche').selectOption('px');
+  await field('Espacement gauche : valeur').fill('40');
   await expect(comp).toHaveCSS('padding-top', '24px');
   await expect(comp).toHaveCSS('padding-left', '40px');
   await page.getByRole('button', { name: 'Aligner bas droite' }).click();
   await expect(comp).toHaveCSS('align-items', 'flex-end');
   await expect(comp).toHaveCSS('justify-content', 'flex-end');
-  await combo('Espacement').selectOption('auto');
+  await combo('Écart entre éléments').selectOption('auto');
   await expect(comp).toHaveCSS('justify-content', 'space-between');
 
   // Dimensions : expression, flèches (Maj = ×10), min et max.
@@ -694,9 +686,9 @@ test('créer un composant : inspecteur complet en direct, tokens, états, persis
   // Typographie (héritée par le libellé).
   await combo('Police').selectOption('Georgia');
   await combo('Taille du texte').selectOption('font.heading');
-  await combo('Graisse').selectOption('800');
-  await combo('Interlignage').selectOption('ratio');
-  await field('Interlignage : valeur').fill('1.2');
+  await combo('Épaisseur du texte').selectOption('800');
+  await combo('Hauteur de ligne').selectOption('ratio');
+  await field('Hauteur de ligne : valeur').fill('1.2');
   await expect(comp).toHaveCSS('font-family', 'Georgia');
   await expect(comp).toHaveCSS('font-size', '28px');
   await expect(comp).toHaveCSS('font-weight', '800');
@@ -718,18 +710,20 @@ test('créer un composant : inspecteur complet en direct, tokens, états, persis
   await field('Opacité').fill('100');
 
   // État « Survol » : réglage à part, montré sur le canevas.
-  await combo('État').selectOption('hover');
+  await page.getByRole('button', { name: /^État :/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Survol' }).click();
   await expect(comp).toHaveAttribute('data-ds-preview', 'hover');
   await combo('Fond 1').selectOption('color.danger');
   await expect(comp).toHaveCSS('background-color', 'rgb(180, 35, 62)');
-  await combo('État').selectOption('base');
+  await page.getByRole('button', { name: /^État :/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Défaut' }).click();
   await expect(comp).not.toHaveAttribute('data-ds-preview', /.*/);
   await expect(comp).toHaveCSS('background-color', rgb(brand));
 
   // Le fond reste lié au token : une validation de color.brand le met à jour.
   await page.getByRole('button', { name: 'Désélectionner' }).click();
   await page
-    .getByRole('combobox', { name: 'Token', exact: true })
+    .getByRole('combobox', { name: 'Élément du thème', exact: true })
     .selectOption('color.brand');
   await page.getByLabel('Valeur du token').fill('#8A3B20');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
@@ -776,56 +770,33 @@ test('créer un composant : inspecteur complet en direct, tokens, états, persis
   await page.screenshot({ path: 'test-results/composant-manuel.png' });
 });
 
-test('réglages d’aperçu : dans la fenêtre d’aperçu seulement, repliables, état conservé', async ({
+test('réglages d’écran : dans la vue Écrans seulement, état conservé', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
-  const width = page.getByRole('combobox', { name: 'Largeur d’écran' });
-  const panel = page.getByRole('complementary', { name: 'Paramètres' });
-  // Vue Design System : aucun réglage d'aperçu, ni dans la scène ni dans le panneau.
+  const editor = page.getByRole('navigation', { name: 'Édition' });
+  const width = editor.getByRole('combobox', { name: 'Taille d’écran' });
+  // Vue Composants : aucun réglage d'écran.
   await expect(width).toHaveCount(0);
-  await expect(panel.getByRole('combobox', { name: 'Scénario' })).toHaveCount(
-    0,
-  );
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
-  const tools = page.getByRole('group', { name: 'Réglages d’aperçu' });
-  await expect(tools).toBeVisible();
-  await tools
-    .getByRole('combobox', { name: 'Largeur d’écran' })
-    .selectOption('2');
-  await tools.getByRole('combobox', { name: 'Scénario' }).selectOption('form');
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
+  await width.selectOption('2');
   await expect(page.locator('iframe')).toHaveAttribute('width', '430');
+  // Mode Tester : choix de l'écran affiché.
+  await page.getByRole('button', { name: 'Tester', exact: true }).click();
+  await editor
+    .getByRole('combobox', { name: 'Écran', exact: true })
+    .selectOption('form');
   await expect(page.locator('iframe')).toHaveAttribute('src', /scenario=form/);
-  const toggle = page.getByRole('button', { name: /Réglages d’aperçu/ });
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  // Panneau latéral, à gauche de l'écran d'aperçu ; replié, il rend la place à la scène.
-  const frameWidth = () =>
-    page.locator('.stage-frame').evaluate((el) => el.clientWidth);
-  const [toolsBox, frameBox] = await Promise.all([
-    tools.boundingBox(),
-    page.locator('.stage-frame').boundingBox(),
-  ]);
-  expect(toolsBox!.x + toolsBox!.width).toBeLessThanOrEqual(frameBox!.x);
-  expect(toolsBox!.height).toBeGreaterThan(frameBox!.height * 0.9);
-  const opened = await frameWidth();
-  await toggle.click();
-  await expect(tools).toBeHidden();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect.poll(frameWidth).toBeGreaterThan(opened + 150);
   await expectFits(page);
-  await toggle.click();
-  await expect(tools).toBeVisible();
-  // Aller-retour vers le Design System : même largeur, même scénario.
-  await page
-    .getByRole('button', { name: 'Design System', exact: true })
-    .click();
+  // Aller-retour vers les composants : même largeur, même écran.
+  await page.getByRole('button', { name: 'Composants', exact: true }).click();
   await expect(width).toHaveCount(0);
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   await expect(width).toHaveValue('2');
-  await expect(page.getByRole('combobox', { name: 'Scénario' })).toHaveValue(
-    'form',
-  );
+  await expect(
+    editor.getByRole('combobox', { name: 'Écran', exact: true }),
+  ).toHaveValue('form');
   await expect(page.locator('iframe')).toHaveAttribute('width', '430');
 });
 
@@ -1261,9 +1232,9 @@ test('exporter vers Figma : pont absent, page cible, progression, DS puis aperç
   ).toBe('font.body');
 
   // Aperçu depuis la barre d'aperçu : choix pré-sélectionné, page courante.
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   await page
-    .locator('.stage-bar')
+    .getByRole('banner')
     .getByRole('button', { name: 'Exporter' })
     .click();
   await expect(
@@ -1287,7 +1258,7 @@ test('exporter vers Figma : pont absent, page cible, progression, DS puis aperç
 
   // Annulation : le plugin est prévenu, l'app l'indique.
   await page
-    .locator('.stage-bar')
+    .getByRole('banner')
     .getByRole('button', { name: 'Exporter' })
     .click();
   plugin.setSlow(400);
@@ -1350,14 +1321,14 @@ test('mode Édition : sélection, override d’instance, texte, maître, annulat
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('edit-selection')).toBeHidden();
 
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
   const cta = '[data-ds-inst="cards.rhythm.cta"]';
   await expect(frame.locator(cta)).toBeVisible();
   let p = await previewPoint(page, cta);
   await page.mouse.click(p.x, p.y);
   const panel = page.getByRole('region', { name: /Button · Secondaire/ });
-  await expect(panel).toContainText('Instance');
+  await expect(panel).toContainText('Copie de composant');
   // Le clic en mode Édition ne déclenche pas la navigation du bouton.
   await expect(frame.locator('.scenario')).toHaveAttribute(
     'data-screen',
@@ -1366,7 +1337,7 @@ test('mode Édition : sélection, override d’instance, texte, maître, annulat
   await panel
     .getByRole('combobox', { name: 'Fond 1', exact: true })
     .selectOption('color.danger');
-  await expect(panel).toContainText('1 override');
+  await expect(panel).toContainText('1 modification');
   const bg = (sel: string) =>
     frame.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
   await expect.poll(() => bg(cta)).toBe('rgb(180, 35, 62)');
@@ -1411,7 +1382,7 @@ test('mode Édition : sélection, override d’instance, texte, maître, annulat
 
   // Annulation geste par geste : maître, texte puis couleur. La pile
   // survit au rechargement.
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('ControlOrMeta+z');
   await expect
     .poll(() => fillOf('button/secondary'))
@@ -1420,9 +1391,9 @@ test('mode Édition : sélection, override d’instance, texte, maître, annulat
     .poll(async () => (await page.request.get('/api/history')).json())
     .toMatchObject({ undone: [expect.anything()] });
   await page.reload();
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   await expect(frame.locator(cta)).toBeVisible();
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('ControlOrMeta+z');
   await expect
     .poll(
@@ -1463,7 +1434,7 @@ test('mode Édition : sélection, override d’instance, texte, maître, annulat
     'form',
   );
   await frame.getByLabel('Votre prénom').fill('Camille');
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('e');
   await expect(page.getByTestId('edit-overlay')).toBeVisible();
   await expect(frame.locator('.scenario')).toHaveAttribute(
@@ -1478,7 +1449,7 @@ test('inspecteur sur une instance : variante, override par propriété, texte in
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
   const combo = (name: string) =>
     page.getByRole('combobox', { name, exact: true });
@@ -1489,7 +1460,7 @@ test('inspecteur sur une instance : variante, override par propriété, texte in
   let p = await previewPoint(page, cta);
   await page.mouse.click(p.x, p.y);
   const panel = page.getByRole('region', { name: /Button · Secondaire/ });
-  await expect(panel).toContainText('Instance');
+  await expect(panel).toContainText('Copie de composant');
 
   // Variante : propriété de l'instance, pas un override.
   await combo('Variante').selectOption('Danger');
@@ -1500,7 +1471,7 @@ test('inspecteur sur une instance : variante, override par propriété, texte in
   // Override d'une propriété, puis retour à la valeur du composant.
   await combo('Fond 1').selectOption('color.success');
   await expect(page.getByRole('region', { name: /Button/ })).toContainText(
-    '1 override',
+    '1 modification',
   );
   await page.getByRole('button', { name: 'Réinitialiser Fond' }).click();
   await expect.poll(() => bg(cta)).toBe('rgb(180, 35, 62)');
@@ -1565,7 +1536,7 @@ test('inspecteur sur une instance : variante, override par propriété, texte in
   await page.keyboard.up('ControlOrMeta');
   await expect(
     page.getByRole('region', { name: /Carte rythme/ }),
-  ).toContainText('Calque');
+  ).toContainText('Élément');
   await page.getByLabel('Fond 1 : fichier image').setInputFiles({
     name: 'motif.png',
     mimeType: 'image/png',
@@ -1587,9 +1558,9 @@ test('calques et structure : arbre synchronisé, insertion, raccourcis, composan
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
-  const layers = page.getByRole('complementary', { name: 'Calques' });
+  const layers = page.getByRole('complementary', { name: 'Éléments' });
   const row = (key: string) => layers.locator(`[data-key="${key}"]`);
   type Doc = {
     screens: string[];
@@ -1639,7 +1610,7 @@ test('calques et structure : arbre synchronisé, insertion, raccourcis, composan
   await row(textId).hover();
   await layers.getByRole('button', { name: 'Masquer Note' }).click();
   await expect(frame.getByText('Texte', { exact: true })).toBeHidden();
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('ControlOrMeta+z');
   await expect(frame.getByText('Texte', { exact: true })).toBeVisible();
 
@@ -1665,9 +1636,9 @@ test('calques et structure : arbre synchronisé, insertion, raccourcis, composan
   await expect(frame.getByText('Un quartier qui inspire.')).toBeVisible();
   await expect(
     page.getByRole('region', { name: /Carte rythme/ }),
-  ).toContainText('Instance');
+  ).toContainText('Copie de composant');
   // Nouvelle variante : un component set se forme.
-  await layers.getByRole('button', { name: 'Ajouter une variante' }).click();
+  await page.getByRole('button', { name: 'Ajouter une variante' }).click();
   await expect
     .poll(async () =>
       Object.values((await doc()).nodes).some(
@@ -1683,9 +1654,9 @@ test('calques et structure : arbre synchronisé, insertion, raccourcis, composan
     'ecran-3',
   );
   await expect(
-    page.getByRole('combobox', { name: 'Scénario', exact: true }),
-  ).toHaveValue('ecran-3');
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+    layers.getByRole('button', { name: 'Écran 3', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  await page.locator('.stage-title').click();
   await page.keyboard.press('f');
   await expect
     .poll(async () => (await doc()).nodes['screen.ecran-3'].children.length)
@@ -1727,9 +1698,9 @@ test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement
   });
   expect(reset.ok()).toBe(true);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
-  const layers = page.getByRole('complementary', { name: 'Calques' });
+  const layers = page.getByRole('complementary', { name: 'Éléments' });
   const row = (key: string) => layers.locator(`[data-key="${key}"]`);
   type Node = {
     children: string[];
@@ -1754,7 +1725,7 @@ test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement
   await page.keyboard.down('Shift');
   await page.mouse.click(intro.x, intro.y);
   await page.keyboard.up('Shift');
-  const multi = page.getByRole('region', { name: /2 calques/ });
+  const multi = page.getByRole('region', { name: /2 éléments/ });
   await expect(multi).toBeVisible();
   await expect(page.getByTestId('edit-selection-extra')).toHaveCount(1);
   await expect(row('cards.intro')).toHaveAttribute('aria-selected', 'true');
@@ -1780,12 +1751,12 @@ test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement
       .locator('option:checked'),
   ).toHaveText('Mixte');
   // Un seul geste : Cmd+Z annule les deux.
-  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.locator('.stage-title').click();
   await page.keyboard.press('ControlOrMeta+z');
   await expect
     .poll(async () => (await nodes())['cards.title'].props.layer?.opacity)
     .toBe(undefined);
-  await expect(page.getByRole('region', { name: /2 calques/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: /2 éléments/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('edit-selection-extra')).toHaveCount(0);
 
@@ -1799,7 +1770,7 @@ test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement
   await expect(page.getByTestId('edit-marquee')).toBeVisible();
   await page.mouse.move(rhythm.x, rhythm.y, { steps: 5 });
   await page.mouse.up();
-  await expect(page.getByRole('region', { name: /2 calques/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: /2 éléments/ })).toBeVisible();
   await expect(row('cards.booking')).toHaveAttribute('aria-selected', 'true');
   await expect(row('cards.rhythm')).toHaveAttribute('aria-selected', 'true');
 
@@ -1857,7 +1828,7 @@ test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement
     .poll(async () => (await nodes())['cards.main'].children.length)
     .toBe(5);
   const rect = (await nodes())['cards.main'].children[2];
-  await page.getByLabel('Position absolue (hors auto-layout)').check();
+  await page.getByLabel('Position libre').check();
   await expect
     .poll(async () => (await nodes())[rect].props.position?.mode)
     .toBe('absolute');
@@ -1880,7 +1851,7 @@ test('versions : onglet périmé invité à recharger, serveur périmé signalé
   page,
 }) => {
   await page.goto('/');
-  await expect(page.locator('.stage-body')).toBeVisible();
+  await expect(page.locator('.stage-frame')).toBeVisible();
   // Rien à signaler sur une version à jour.
   await expect(page.locator('.version-banner')).toHaveCount(0);
   // Bundle plus récent publié pendant que l'onglet est ouvert.
@@ -1908,11 +1879,11 @@ test('versions : onglet périmé invité à recharger, serveur périmé signalé
   // Recharger (version à jour) : le bandeau disparaît.
   await page.unroute('**/api/version');
   await page.reload();
-  await expect(page.locator('.stage-body')).toBeVisible();
+  await expect(page.locator('.stage-frame')).toBeVisible();
   await expect(page.locator('.version-banner')).toHaveCount(0);
 });
 
-test('inspecteur : paquets essentiels dépliés, détails repliés et retenus', async ({
+test('inspecteur : groupes essentiels dépliés, avancé replié et retenu', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -1923,15 +1894,13 @@ test('inspecteur : paquets essentiels dépliés, détails repliés et retenus', 
       has: page.getByRole('heading', { name: new RegExp(`^${t}`) }),
     });
   const summary = (t: string) => section(t).locator('summary');
-  for (const t of ['Composant', 'Mise en page', 'Dimensions'])
+  for (const t of ['Disposition', 'Style'])
     await expect(section(t)).toHaveAttribute('open', '');
-  for (const t of ['Position', 'Apparence', 'Fond', 'Effets', 'Avancé'])
+  for (const t of ['Avancé'])
     await expect(section(t)).not.toHaveAttribute('open', '');
-  await summary('Fond').click();
-  await expect(
-    page.getByRole('combobox', { name: 'Fond 1', exact: true }),
-  ).toBeVisible();
+  await summary('Avancé').click();
+  await expect(page.getByLabel('Position libre')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Nouveau composant' }).click();
-  await expect(section('Fond')).toHaveAttribute('open', '');
+  await expect(section('Avancé')).toHaveAttribute('open', '');
 });

@@ -11,7 +11,6 @@ import {
   CaretRight,
   ClockCounterClockwise,
   Cube,
-  SlidersHorizontal,
   X,
 } from '@phosphor-icons/react';
 import {
@@ -85,7 +84,6 @@ import {
 import { applyToComponent, readOwn, writeLegacy } from '../shared/legacy.js';
 import { bootstrap, commit, getState, request, type Bootstrap } from './api.js';
 import {
-  contrast,
   tokenKeys,
   type Proposal,
   type State,
@@ -285,7 +283,7 @@ export function Preview() {
       events.forEach((t) => window.removeEventListener(t, block, true));
   }, [editing]);
   if (!state || !saved)
-    return <p role="alert">{error || docError || 'Chargement du scénario…'}</p>;
+    return <p role="alert">{error || docError || 'Chargement…'}</p>;
   const current = live && live.revision >= state.revision ? live : undefined;
   return (
     <Scenario
@@ -330,7 +328,6 @@ export default function App() {
   const [view, setView] = useState<'ds' | 'preview'>('ds');
   const [panelOpen, setPanelOpen] = useState(true);
   const version = useVersion();
-  const [previewToolsOpen, setPreviewToolsOpen] = useState(true);
   const [sections, setSection] = useSections();
   // Ouverture pilotée par le clic : l'évènement « toggle » est asynchrone et
   // un rendu intercalé (rafraîchissement de l'état) pouvait la contredire.
@@ -1328,24 +1325,9 @@ export default function App() {
   const agentName = 'Claude';
   const manual = agent === 'manual';
   const staleProposal = !!proposal && proposal.revision !== state.revision;
-  const draftContrast =
-    /^#[0-9a-fA-F]{6}$/.test(draft) &&
-    (key === 'color.brand' || key === 'color.onBrand')
-      ? contrast(
-          key === 'color.brand' ? draft : state.tokens['color.brand'].$value,
-          key === 'color.onBrand'
-            ? draft
-            : state.tokens['color.onBrand'].$value,
-        )
-      : undefined;
-  const savedContrast = contrast(
-    state.tokens['color.brand'].$value,
-    state.tokens['color.onBrand'].$value,
-  );
   const matchingKeys = tokenKeys.filter((k) =>
     k.toLowerCase().includes(search.trim().toLowerCase()),
   );
-  const fit = view === 'ds' ? catalogueFit : previewFit;
   return (
     <div
       className="studio"
@@ -1369,7 +1351,6 @@ export default function App() {
         </span>
         <h1 className="sr-only">DS-Studio</h1>
         <div className="header-status">
-          <span className="badge">Local</span>
           <FigmaBridgePanel />
           <FigmaExportButton
             tokens={state.tokens}
@@ -1378,7 +1359,7 @@ export default function App() {
               label: scenario === 'form' ? 'Inscription' : 'Découvrir',
               width: devices[device].width,
             }}
-            initialKind="design_system"
+            initialKind={view === 'preview' ? 'preview' : 'design_system'}
             onDone={(text) => {
               setError('');
               setNotice(text);
@@ -1400,17 +1381,17 @@ export default function App() {
         </div>
       </header>
 
-      <main className="stage" aria-label="Scène">
-        <div className="stage-bar">
+      <div className="workspace">
+        <nav className="editor" aria-label="Édition">
           <div className="segmented" role="group" aria-label="Vue de la scène">
             <button aria-pressed={view === 'ds'} onClick={() => setView('ds')}>
-              Design System
+              Composants
             </button>
             <button
               aria-pressed={view === 'preview'}
               onClick={() => setView('preview')}
             >
-              Aperçu
+              Écrans
             </button>
           </div>
           <div
@@ -1421,53 +1402,50 @@ export default function App() {
             <button
               aria-pressed={mode === 'edit'}
               aria-keyshortcuts="E"
-              title="Édition (E) : le clic sélectionne"
+              title="Modifier (E)"
               onClick={() => switchMode('edit')}
             >
-              Édition <kbd>E</kbd>
+              Modifier
             </button>
             <button
               aria-pressed={mode === 'test'}
               aria-keyshortcuts="P"
-              title="Test (P) : prototype interactif"
+              title="Tester (P)"
               onClick={() => switchMode('test')}
             >
-              Test <kbd>P</kbd>
+              Tester
             </button>
           </div>
-          <span className="stage-meta" aria-live="polite">
-            {view === 'preview' && `${devices[device].width} px · `}
-            {Math.round(fit.scale * 100)} %
-          </span>
           {view === 'preview' && (
-            <button
-              className="preview-tools-toggle"
-              aria-expanded={previewToolsOpen}
-              aria-controls="preview-tools"
-              onClick={() => setPreviewToolsOpen(!previewToolsOpen)}
-            >
-              <SlidersHorizontal />
-              Réglages d’aperçu
-            </button>
+            <label className="field">
+              Taille d’écran
+              <select
+                value={device}
+                onChange={(e) => setDevice(Number(e.target.value))}
+              >
+                {devices.map((d, i) => (
+                  <option key={d.width} value={i}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-          {view === 'preview' && (
-            <FigmaExportButton
-              tokens={state.tokens}
-              scenario={{
-                id: scenario,
-                label: scenario === 'form' ? 'Inscription' : 'Découvrir',
-                width: devices[device].width,
-              }}
-              initialKind="preview"
-              onDone={(text) => {
-                setError('');
-                setNotice(text);
-              }}
-              onError={setError}
-            />
+          {view === 'preview' && mode === 'test' && (
+            <label className="field">
+              Écran
+              <select
+                value={scenario}
+                onChange={(e) => setScenario(e.target.value)}
+              >
+                {doc?.screens.map((id) => (
+                  <option key={id} value={screenSlug(id)}>
+                    {doc.nodes[id]?.name ?? id}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-        </div>
-        <div className="stage-body">
           {mode === 'edit' && doc && layersRoot && (
             <LayersPanel
               doc={doc}
@@ -1481,44 +1459,10 @@ export default function App() {
               onScreen={onScreen}
             />
           )}
-          {view === 'preview' && (
-            // Panneau latéral glissant : replié, il libère la place et sort du parcours clavier.
-            <div
-              className="preview-tools"
-              id="preview-tools"
-              role="group"
-              aria-label="Réglages d’aperçu"
-              data-open={previewToolsOpen}
-              inert={!previewToolsOpen}
-            >
-              <label className="field">
-                Largeur d’écran
-                <select
-                  value={device}
-                  onChange={(e) => setDevice(Number(e.target.value))}
-                >
-                  {devices.map((d, i) => (
-                    <option key={d.width} value={i}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Scénario
-                <select
-                  value={scenario}
-                  onChange={(e) => setScenario(e.target.value)}
-                >
-                  {doc?.screens.map((id) => (
-                    <option key={id} value={screenSlug(id)}>
-                      {doc.nodes[id]?.name ?? id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
+        </nav>
+
+        <main className="stage" aria-label="Scène">
+          <h2 className="stage-title">Aperçu</h2>
           <div className="stage-frame" ref={stageFrame} data-mode={mode}>
             {view === 'ds' ? (
               <div
@@ -1594,397 +1538,379 @@ export default function App() {
               />
             )}
           </div>
-        </div>
-      </main>
 
-      <aside
-        className="settings"
-        id="settings-panel"
-        aria-label="Paramètres"
-        data-open={panelOpen}
-      >
-        <button
-          className="settings-toggle"
-          aria-expanded={panelOpen}
-          aria-controls="settings-body"
-          onClick={() => setPanelOpen(!panelOpen)}
-        >
-          {panelOpen ? <CaretRight /> : <CaretLeft />}
-          <span className={panelOpen ? '' : 'sr-only'}>
-            {panelOpen ? 'Replier les paramètres' : 'Paramètres'}
-          </span>
-        </button>
-        <div className="settings-body" id="settings-body" hidden={!panelOpen}>
-          {selection && selectedAll.length > 1 ? (
-            <SelectionPanel
-              selection={{
-                ...selection,
-                kind: 'node',
-                name: `${selectedAll.length} calques`,
+          <div className="dock">
+            <div className="dock-messages">
+              {(error || stateError) && (
+                <p className="error" role="alert">
+                  {error || stateError}
+                  {error && (
+                    <button
+                      className="dismiss"
+                      aria-label="Fermer le message"
+                      onClick={() => setError('')}
+                    >
+                      <X />
+                    </button>
+                  )}
+                </p>
+              )}
+              {notice && (
+                <p className="notice" role="status">
+                  {notice}
+                </p>
+              )}
+              {(thinking || reply) && (
+                <section
+                  className="reply"
+                  aria-label={`Réponse de ${agentName}`}
+                >
+                  <button
+                    className="reply-toggle"
+                    aria-expanded={replyOpen}
+                    aria-controls="reply-body"
+                    onClick={() => setReplyOpen(!replyOpen)}
+                  >
+                    {replyOpen ? <CaretDown /> : <CaretRight />}
+                    {agentName}
+                    {thinking ? ' · réflexion…' : ''}
+                  </button>
+                  <p id="reply-body" hidden={!replyOpen} aria-live="polite">
+                    {thinking ? '…' : reply}
+                  </p>
+                </section>
+              )}
+            </div>
+            <form
+              className="prompt-bar"
+              ref={promptBar}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (thinking) controller.current?.abort();
+                else if (manual) focusTokens();
+                else void sendMessage();
               }}
-              tokens={shownTokens!}
-              onToken={liveToken}
-              onClose={() => setSelection(null)}
             >
-              <MultiInspector
-                doc={doc}
-                keys={selectedAll.map((x) => x.key)}
-                tokens={shownTokens!}
-                state={editState}
-                onNodes={liveNodes}
-              />
-            </SelectionPanel>
-          ) : selection ? (
-            <SelectionPanel
-              selection={selection}
-              tokens={shownTokens!}
-              onToken={liveToken}
-              onClose={() => setSelection(null)}
-            >
-              <Inspector
-                key={selection.key}
-                doc={doc}
-                selKey={selection.key}
-                tokens={shownTokens!}
-                state={editState}
-                onState={setEditState}
-                onNodes={liveNodes}
-                onApply={() => applyToMaster(selection)}
-                onCommand={command}
-                onRename={(name) => setSelection((x) => x && { ...x, name })}
-                measure={measureSelection}
-              />
-            </SelectionPanel>
-          ) : (
-            <>
-              <details className="settings-group" open={sections.create}>
-                <summary onClick={toggleSection('create')}>
-                  <CaretRight className="chevron" />
-                  <h2>Créer</h2>
-                </summary>
-                <section className="settings-section">
+              <label className="mode-select">
+                <span className="sr-only">Mode de travail</span>
+                <select
+                  value={agent}
+                  onChange={(e) => setAgent(e.target.value)}
+                >
+                  <option value="claude">Claude</option>
+                  <option value="manual">Manuel</option>
+                </select>
+              </label>
+              {selection && scoped && !manual && (
+                <span className="prompt-chip" data-testid="prompt-chip">
+                  {selection.name}
                   <button
                     type="button"
-                    className="list-item"
-                    onClick={() =>
-                      void createComponent().catch((e) => setError(e.message))
-                    }
+                    aria-label="Retirer l’élément du prompt"
+                    onClick={() => setScoped(false)}
                   >
-                    <span className="icon-box" aria-hidden="true">
-                      <Cube />
-                    </span>
-                    <span className="list-item-text">
-                      <span className="list-item-title">Nouveau composant</span>
-                      <span className="list-item-desc">
-                        Ajouté à « Mes composants »
-                      </span>
-                    </span>
+                    <X />
                   </button>
-                </section>
-              </details>
-              <details className="settings-group" open={sections.image}>
-                <summary onClick={toggleSection('image')}>
-                  <CaretRight className="chevron" />
-                  <h2>Importer une image</h2>
-                </summary>
-                <section className="settings-section" id="image-import">
-                  <ImageImport
-                    tokens={state.tokens}
-                    onCreate={async (component) => {
-                      await createComponent(component);
-                      setNotice(`Composant « ${component.name} » créé.`);
-                    }}
-                  />
-                </section>
-              </details>
-              <details
-                className="settings-group"
-                open={sections.other}
-                aria-labelledby="tokens-title"
-              >
-                <summary onClick={toggleSection('other')}>
-                  <CaretRight className="chevron" />
-                  <h2 id="tokens-title" ref={tokensTitle} tabIndex={-1}>
-                    Tokens
-                  </h2>
-                  <span className="badge">r{state.revision}</span>
-                </summary>
-                <section className="settings-section">
-                  <label className="field">
-                    <span className="sr-only">Rechercher un token</span>
-                    <input
-                      type="search"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Rechercher"
-                    />
-                  </label>
-                  <p className="token-hint" role="status">
-                    {matchingKeys.length} résultat(s).
-                  </p>
-                  <div className="swatches">
-                    {matchingKeys
-                      .filter((k) => k.startsWith('color.'))
-                      .map((k) => (
-                        <button
-                          title={k}
-                          aria-label={`Sélectionner ${k}`}
-                          aria-pressed={key === k}
-                          key={k}
-                          style={{ background: String(state.tokens[k].$value) }}
-                          onClick={() => setKey(k)}
-                        >
-                          <span className="sr-only">{k}</span>
-                        </button>
-                      ))}
-                  </div>
-                  <form
-                    className="token-form"
-                    onSubmit={(e) => {
+                </span>
+              )}
+              <label className="prompt-field">
+                <span className="sr-only">Votre demande</span>
+                <textarea
+                  ref={promptInput}
+                  rows={1}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === 'Enter' &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
                       e.preventDefault();
-                      void proposeToken();
-                    }}
-                  >
-                    <label className="field">
-                      Token
-                      <select
-                        value={key}
-                        onChange={(e) => setKey(e.target.value as TokenKey)}
-                      >
-                        {[...new Set([key, ...matchingKeys])].map((k) => (
-                          <option key={k}>{k}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="token-value">
-                      <label className="field">
-                        Valeur
-                        {state.tokens[key].$type === 'fontFamily' ? (
-                          <select
-                            value={draft}
-                            onChange={(e) => setDraft(e.target.value)}
-                          >
-                            {['system-ui', 'Arial', 'Georgia', 'Verdana'].map(
-                              (f) => (
-                                <option key={f}>{f}</option>
-                              ),
-                            )}
-                          </select>
-                        ) : (
-                          <input
-                            aria-label="Valeur du token"
-                            value={draft}
-                            onChange={(e) => setDraft(e.target.value)}
-                            required
-                            type={
-                              state.tokens[key].$type === 'dimension'
-                                ? 'number'
-                                : 'text'
-                            }
-                            min={
-                              state.tokens[key].$type === 'dimension'
-                                ? 0
-                                : undefined
-                            }
-                            max={
-                              state.tokens[key].$type === 'dimension'
-                                ? 128
-                                : undefined
-                            }
-                            step={
-                              state.tokens[key].$type === 'dimension'
-                                ? 'any'
-                                : undefined
-                            }
-                            maxLength={20}
-                          />
-                        )}
-                      </label>
-                      {state.tokens[key].$type === 'color' && (
-                        <input
-                          className="color-picker"
-                          aria-label="Sélecteur de couleur"
-                          type="color"
-                          value={
-                            /^#[0-9a-fA-F]{6}$/.test(draft)
-                              ? draft
-                              : String(current)
-                          }
-                          onChange={(e) => setDraft(e.target.value)}
-                        />
-                      )}
-                      <button
-                        className="studio-primary"
-                        disabled={!boot || draft === String(current)}
-                      >
-                        Proposer
-                      </button>
-                    </div>
-                  </form>
-                  {state.tokens[key].$type !== 'fontFamily' && (
-                    <p className="token-hint">
-                      {state.tokens[key].$type === 'color'
-                        ? '#RRGGBB'
-                        : '0–128 px'}
-                    </p>
-                  )}
-                  {draft !== String(current) && (
-                    <p className="draft-status" role="status">
-                      <span className="badge">
-                        {recovered ? 'Brouillon récupéré' : 'Brouillon'}
-                      </span>
-                      <button
-                        type="button"
-                        className="ghost"
-                        aria-label="Abandonner le brouillon"
-                        onClick={discard}
-                      >
-                        Abandonner
-                      </button>
-                    </p>
-                  )}
-                  <p className="contrast" aria-live="polite">
-                    Contraste <strong>{savedContrast.toFixed(2)}:1</strong>
-                    <span
-                      className={
-                        savedContrast >= 4.5 ? 'badge' : 'badge badge-strong'
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  maxLength={8000}
+                  disabled={manual || thinking}
+                  placeholder={
+                    manual
+                      ? 'Mode manuel'
+                      : selectedAgent && !selectedAgent.available
+                        ? selectedAgent.detail
+                        : selection && scoped
+                          ? `Modifier « ${selection.name} »…`
+                          : 'Décrire un changement…'
+                  }
+                />
+              </label>
+              <button
+                className={thinking ? 'stop' : 'studio-primary'}
+                disabled={
+                  !thinking &&
+                  !manual &&
+                  (!message.trim() || !selectedAgent?.available)
+                }
+              >
+                {thinking
+                  ? 'Arrêter'
+                  : manual
+                    ? 'Ouvrir les tokens'
+                    : 'Envoyer'}
+              </button>
+            </form>
+          </div>
+        </main>
+
+        <aside
+          className="settings"
+          id="settings-panel"
+          aria-label="Paramètres"
+          data-open={panelOpen}
+        >
+          <button
+            className="settings-toggle"
+            aria-expanded={panelOpen}
+            aria-controls="settings-body"
+            onClick={() => setPanelOpen(!panelOpen)}
+          >
+            {panelOpen ? <CaretRight /> : <CaretLeft />}
+            <span className={panelOpen ? '' : 'sr-only'}>
+              {panelOpen ? 'Replier les paramètres' : 'Paramètres'}
+            </span>
+          </button>
+          <div className="settings-body" id="settings-body" hidden={!panelOpen}>
+            {selection && selectedAll.length > 1 ? (
+              <SelectionPanel
+                selection={{
+                  ...selection,
+                  kind: 'node',
+                  name: `${selectedAll.length} éléments`,
+                }}
+                tokens={shownTokens!}
+                onToken={liveToken}
+                onClose={() => setSelection(null)}
+                done
+              >
+                <MultiInspector
+                  doc={doc}
+                  keys={selectedAll.map((x) => x.key)}
+                  tokens={shownTokens!}
+                  state={editState}
+                  onNodes={liveNodes}
+                />
+              </SelectionPanel>
+            ) : selection ? (
+              <SelectionPanel
+                selection={selection}
+                tokens={shownTokens!}
+                onToken={liveToken}
+                onClose={() => setSelection(null)}
+              >
+                <Inspector
+                  key={selection.key}
+                  doc={doc}
+                  selKey={selection.key}
+                  tokens={shownTokens!}
+                  state={editState}
+                  onState={setEditState}
+                  onNodes={liveNodes}
+                  onApply={() => applyToMaster(selection)}
+                  onCommand={command}
+                  onRename={(name) => setSelection((x) => x && { ...x, name })}
+                  onDone={() => setSelection(null)}
+                  measure={measureSelection}
+                />
+              </SelectionPanel>
+            ) : (
+              <>
+                <details className="settings-group" open={sections.create}>
+                  <summary onClick={toggleSection('create')}>
+                    <CaretRight className="chevron" />
+                    <h2>Créer</h2>
+                  </summary>
+                  <section className="settings-section">
+                    <button
+                      type="button"
+                      className="list-item"
+                      onClick={() =>
+                        void createComponent().catch((e) => setError(e.message))
                       }
                     >
-                      {savedContrast >= 4.5 ? 'AA' : 'Contraste à améliorer'}
-                    </span>
-                  </p>
-                  {draftContrast !== undefined && draft !== String(current) && (
-                    <p className="contrast" role="status">
-                      Contraste proposé :{' '}
-                      <strong>{draftContrast.toFixed(2)}:1</strong>
-                      <span
-                        className={
-                          draftContrast >= 4.5 ? 'badge' : 'badge badge-strong'
-                        }
-                      >
-                        {draftContrast >= 4.5 ? 'AA' : 'Contraste à améliorer'}
+                      <span className="icon-box" aria-hidden="true">
+                        <Cube />
                       </span>
-                    </p>
-                  )}
-                </section>
-              </details>
-              <section className="settings-section settings-sub">
-                <ProjectBrief />
-              </section>
-            </>
-          )}
-        </div>
-      </aside>
-
-      <div className="dock">
-        <div className="dock-messages">
-          {(error || stateError) && (
-            <p className="error" role="alert">
-              {error || stateError}
-              {error && (
-                <button
-                  className="dismiss"
-                  aria-label="Fermer le message"
-                  onClick={() => setError('')}
+                      <span className="list-item-title">Nouveau composant</span>
+                    </button>
+                  </section>
+                </details>
+                <details className="settings-group" open={sections.image}>
+                  <summary onClick={toggleSection('image')}>
+                    <CaretRight className="chevron" />
+                    <h2>Importer une image</h2>
+                  </summary>
+                  <section className="settings-section" id="image-import">
+                    <ImageImport
+                      tokens={state.tokens}
+                      onCreate={async (component) => {
+                        await createComponent(component);
+                        setNotice(`Composant « ${component.name} » créé.`);
+                      }}
+                    />
+                  </section>
+                </details>
+                <details
+                  className="settings-group"
+                  open={sections.other}
+                  aria-labelledby="tokens-title"
                 >
-                  <X />
-                </button>
-              )}
-            </p>
-          )}
-          {notice && (
-            <p className="notice" role="status">
-              {notice}
-            </p>
-          )}
-          {(thinking || reply) && (
-            <section className="reply" aria-label={`Réponse de ${agentName}`}>
-              <button
-                className="reply-toggle"
-                aria-expanded={replyOpen}
-                aria-controls="reply-body"
-                onClick={() => setReplyOpen(!replyOpen)}
-              >
-                {replyOpen ? <CaretDown /> : <CaretRight />}
-                {agentName}
-                {thinking ? ' · réflexion…' : ''}
-              </button>
-              <p id="reply-body" hidden={!replyOpen} aria-live="polite">
-                {thinking ? '…' : reply}
-              </p>
-            </section>
-          )}
-        </div>
-        <form
-          className="prompt-bar"
-          ref={promptBar}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (thinking) controller.current?.abort();
-            else if (manual) focusTokens();
-            else void sendMessage();
-          }}
-        >
-          <label className="mode-select">
-            <span className="sr-only">Mode de travail</span>
-            <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-              <option value="claude">Claude</option>
-              <option value="manual">Manuel</option>
-            </select>
-          </label>
-          {selection && scoped && !manual && (
-            <span className="prompt-chip" data-testid="prompt-chip">
-              {selection.name}
-              <button
-                type="button"
-                aria-label="Retirer l’élément du prompt"
-                onClick={() => setScoped(false)}
-              >
-                <X />
-              </button>
-            </span>
-          )}
-          <label className="prompt-field">
-            <span className="sr-only">Votre demande</span>
-            <textarea
-              ref={promptInput}
-              rows={1}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  e.key === 'Enter' &&
-                  !e.shiftKey &&
-                  !e.nativeEvent.isComposing
-                ) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              maxLength={8000}
-              disabled={manual || thinking}
-              placeholder={
-                manual
-                  ? 'Mode manuel'
-                  : selectedAgent && !selectedAgent.available
-                    ? selectedAgent.detail
-                    : selection && scoped
-                      ? `Modifier « ${selection.name} »…`
-                      : 'Décrire un changement…'
-              }
-            />
-          </label>
-          <button
-            className={thinking ? 'stop' : 'studio-primary'}
-            disabled={
-              !thinking &&
-              !manual &&
-              (!message.trim() || !selectedAgent?.available)
-            }
-          >
-            {thinking ? 'Arrêter' : manual ? 'Ouvrir les tokens' : 'Envoyer'}
-          </button>
-        </form>
+                  <summary onClick={toggleSection('other')}>
+                    <CaretRight className="chevron" />
+                    <h2 id="tokens-title" ref={tokensTitle} tabIndex={-1}>
+                      Thème
+                    </h2>
+                  </summary>
+                  <section className="settings-section">
+                    <label className="field">
+                      <span className="sr-only">Rechercher dans le thème</span>
+                      <input
+                        type="search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Rechercher"
+                      />
+                    </label>
+                    <p className="sr-only" role="status">
+                      {matchingKeys.length} résultat(s).
+                    </p>
+                    <div className="swatches">
+                      {matchingKeys
+                        .filter((k) => k.startsWith('color.'))
+                        .map((k) => (
+                          <button
+                            title={k}
+                            aria-label={`Sélectionner ${k}`}
+                            aria-pressed={key === k}
+                            key={k}
+                            style={{
+                              background: String(state.tokens[k].$value),
+                            }}
+                            onClick={() => setKey(k)}
+                          >
+                            <span className="sr-only">{k}</span>
+                          </button>
+                        ))}
+                    </div>
+                    <form
+                      id="token-form"
+                      className="token-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void proposeToken();
+                      }}
+                    >
+                      <label className="field">
+                        Élément du thème
+                        <select
+                          value={key}
+                          onChange={(e) => setKey(e.target.value as TokenKey)}
+                        >
+                          {[...new Set([key, ...matchingKeys])].map((k) => (
+                            <option key={k}>{k}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="token-value">
+                        <label className="field">
+                          Valeur
+                          {state.tokens[key].$type === 'fontFamily' ? (
+                            <select
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                            >
+                              {['system-ui', 'Arial', 'Georgia', 'Verdana'].map(
+                                (f) => (
+                                  <option key={f}>{f}</option>
+                                ),
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              aria-label="Valeur du token"
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                              required
+                              type={
+                                state.tokens[key].$type === 'dimension'
+                                  ? 'number'
+                                  : 'text'
+                              }
+                              min={
+                                state.tokens[key].$type === 'dimension'
+                                  ? 0
+                                  : undefined
+                              }
+                              max={
+                                state.tokens[key].$type === 'dimension'
+                                  ? 128
+                                  : undefined
+                              }
+                              step={
+                                state.tokens[key].$type === 'dimension'
+                                  ? 'any'
+                                  : undefined
+                              }
+                              maxLength={20}
+                            />
+                          )}
+                        </label>
+                        {state.tokens[key].$type === 'color' && (
+                          <input
+                            className="color-picker"
+                            aria-label="Sélecteur de couleur"
+                            type="color"
+                            value={
+                              /^#[0-9a-fA-F]{6}$/.test(draft)
+                                ? draft
+                                : String(current)
+                            }
+                            onChange={(e) => setDraft(e.target.value)}
+                          />
+                        )}
+                      </div>
+                    </form>
+                    {draft !== String(current) && (
+                      <p className="draft-status" role="status">
+                        <span className="badge">
+                          {recovered ? 'Brouillon récupéré' : 'Brouillon'}
+                        </span>
+                        <button
+                          type="button"
+                          className="ghost"
+                          aria-label="Abandonner le brouillon"
+                          onClick={discard}
+                        >
+                          Abandonner
+                        </button>
+                      </p>
+                    )}
+                  </section>
+                </details>
+                <section className="settings-section">
+                  <ProjectBrief />
+                </section>
+                <div className="panel-cta">
+                  <button
+                    className="studio-primary"
+                    form="token-form"
+                    disabled={!boot || draft === String(current)}
+                  >
+                    Proposer
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </aside>
       </div>
 
       <dialog

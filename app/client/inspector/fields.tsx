@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { CaretRight, Circle, LinkBreak } from '@phosphor-icons/react';
 import type { TokenKey, Tokens } from '../../shared/model.js';
 import type { Color, Length } from '../../shared/doc.js';
-import { offToken } from '../../shared/doc.js';
 import { evaluate } from '../../shared/expr.js';
 
 // Champs génériques de l'inspecteur. Chaque champ lié à un token se comporte
-// comme une variable Figma : choix du token filtré par type, « Détacher »
-// (valeur libre égale), badge « hors token » sur une valeur libre.
+// comme une variable Figma : choix du token filtré par type, « Dissocier »
+// (valeur personnalisée égale), option « Personnalisée » pour une valeur libre.
 // `label` reste le nom accessible complet ; `short` est le libellé affiché
 // (contenu dans `label`, pour que le nom lu contienne le texte vu).
 
@@ -194,12 +200,6 @@ export function Toggle({
     </label>
   );
 }
-export const OffToken = ({ value }: { value: unknown }) =>
-  offToken(value) ? (
-    <span className="off-token" title="Valeur libre, non liée au DS">
-      hors token
-    </span>
-  ) : null;
 /** Pastille d'override (valeur propre à l'instance) avec retour au composant. */
 export function OwnMark({
   own,
@@ -258,7 +258,7 @@ export function ColorField({
     <div className="ins-color">
       <label className="ins-field">
         <span className="ins-label">
-          {short ?? label} <OffToken value={value} />
+          {short ?? label}
           {hint}
         </span>
         <span className="ins-input">
@@ -293,14 +293,14 @@ export function ColorField({
                 {tokenText(tokens, k)}
               </option>
             ))}
-            <option value="hex">Valeur libre</option>
+            <option value="hex">Personnalisée</option>
           </select>
           {value && 'token' in value && (
             <button
               type="button"
               className="ins-detach"
-              aria-label={`${label} : détacher du token`}
-              title="Détacher du token"
+              aria-label={`${label} : dissocier du thème`}
+              title="Dissocier du thème"
               onClick={() =>
                 onChange({
                   hex: String(tokens[value.token].$value).toUpperCase(),
@@ -387,7 +387,7 @@ export function LengthField({
     <div className="ins-length">
       <label className="ins-field">
         <span className="ins-label">
-          {short ?? label} <OffToken value={value} />
+          {short ?? label}
           {hint}
         </span>
         <span className="ins-input">
@@ -410,14 +410,14 @@ export function LengthField({
                 {tokenText(tokens, k)}
               </option>
             ))}
-            <option value="px">Valeur libre</option>
+            <option value="px">Personnalisée</option>
           </select>
           {value && 'token' in value && !extra?.selected && (
             <button
               type="button"
               className="ins-detach"
-              aria-label={`${label} : détacher du token`}
-              title="Détacher du token"
+              aria-label={`${label} : dissocier du thème`}
+              title="Dissocier du thème"
               onClick={() => onChange({ px })}
             >
               <LinkBreak />
@@ -449,8 +449,12 @@ function storedSections(): Record<string, boolean> {
   }
 }
 
+// Dans un groupe, une Section devient un sous-bloc : intertitre discret,
+// sans repli. Seuls les groupes de premier niveau se replient.
+const InGroup = createContext(false);
+
 /**
- * Paquet repliable : chevron et intertitre cliquables, sans fond. L'état
+ * Groupe repliable : chevron et intertitre cliquables, sans fond. L'état
  * ouvert/replié choisi par l'utilisateur est retenu d'une sélection à l'autre.
  */
 export function Section({
@@ -466,7 +470,21 @@ export function Section({
   actions?: ReactNode;
   badge?: ReactNode;
 }) {
+  const sub = useContext(InGroup);
   const [open, setOpen] = useState(() => storedSections()[title] ?? byDefault);
+  if (sub)
+    return (
+      <div className="ins-sub">
+        <div className="ins-sub-head">
+          <h5>
+            {title}
+            {badge && <span className="badge">{badge}</span>}
+          </h5>
+          {actions && <span className="ins-actions">{actions}</span>}
+        </div>
+        {children}
+      </div>
+    );
   return (
     <details className="ins-section" open={open}>
       <summary
@@ -491,7 +509,9 @@ export function Section({
         </h4>
         {actions && <span className="ins-actions">{actions}</span>}
       </summary>
-      <div className="ins-body">{children}</div>
+      <div className="ins-body">
+        <InGroup.Provider value={true}>{children}</InGroup.Provider>
+      </div>
     </details>
   );
 }

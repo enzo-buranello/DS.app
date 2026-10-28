@@ -62,7 +62,7 @@
   --ui-control-h: 32px;
   --ui-icon: 16px;
   --ui-icon-box: 32px;
-  --ui-label-w: 88px;
+  --ui-label-w: 128px;
   --ui-panel-w: 360px;
   --ui-panel-pad: 16px;
   --ui-duration: 0.2s;
@@ -405,29 +405,36 @@ summary::-webkit-details-marker {
 }
 
 /* Structure : en-tête, scène, panneau latéral, barre de prompt. */
+/* Trois zones intégrées : édition à gauche, aperçu au centre, paramètres à droite. */
 .studio {
   --header-h: 56px;
-  --gap: var(--ui-s-4);
-  --panel-w: var(--ui-panel-w);
-  --panel-space: calc(var(--panel-w) + 2 * var(--gap));
-  --bottom-space: calc(var(--prompt-h, 72px) + var(--gap));
+  --editor-w: 264px;
+  --panel-w: clamp(440px, 42vw, 50vw);
   height: 100vh;
+  display: grid;
+  grid-template-rows: var(--header-h) minmax(0, 1fr);
   overflow: hidden;
 }
 .studio[data-panel='closed'] {
-  --panel-space: calc(48px + 2 * var(--gap));
+  --panel-w: 48px;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: var(--editor-w) minmax(0, 1fr) var(--panel-w);
+  min-height: 0;
+  border-top: 1px solid var(--ui-border);
 }
 .studio-header {
-  position: fixed;
-  inset: 0 0 auto 0;
-  /* Au-dessus de la scène et du panneau : le menu d'export s'y déploie. */
+  position: relative;
+  /* Au-dessus des zones : le menu d'export s'y déploie. */
   z-index: 4;
+  background: var(--ui-surface);
   height: var(--header-h);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--ui-s-4);
-  padding: 0 var(--gap);
+  padding: 0 var(--ui-s-4);
 }
 .brand-symbol {
   display: grid;
@@ -448,23 +455,32 @@ summary::-webkit-details-marker {
   font-size: var(--ui-fs-caption);
 }
 
-.stage {
-  position: fixed;
-  top: var(--header-h);
-  left: 0;
-  right: var(--panel-space);
-  bottom: var(--bottom-space);
+.editor {
   display: flex;
   flex-direction: column;
-  gap: var(--ui-s-3);
-  padding: 0 var(--gap) var(--ui-s-3);
+  gap: var(--ui-s-4);
+  min-height: 0;
+  padding: var(--ui-s-4);
+  overflow: auto;
+  background: var(--ui-surface);
+  border-right: 1px solid var(--ui-border);
 }
-.stage-bar {
+.editor > .segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.stage {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ui-s-2) var(--ui-s-3);
+  flex-direction: column;
+  gap: var(--ui-s-4);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--ui-s-6);
+  background: var(--ui-bg);
+}
+.stage-title {
+  font-size: var(--ui-fs-title);
+  margin: 0;
 }
 .segmented {
   display: inline-flex;
@@ -488,9 +504,6 @@ summary::-webkit-details-marker {
 .segmented button[aria-pressed='true'] {
   background: var(--ui-active);
   color: var(--ui-text);
-}
-.stage-bar .stage-meta {
-  margin-left: auto;
 }
 .image-import {
   display: grid;
@@ -679,56 +692,6 @@ summary::-webkit-details-marker {
   background: var(--ui-cta);
   transition: width var(--ui-duration) ease;
 }
-.stage-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: var(--ui-s-3);
-}
-.stage-body > .stage-frame {
-  flex: 1;
-  min-width: 0;
-}
-.preview-tools {
-  flex: none;
-  width: 224px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-s-3);
-  padding: var(--ui-s-4);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-r-container);
-  box-shadow: var(--ui-shadow-1);
-  overflow: hidden;
-  transition:
-    width var(--ui-duration) ease,
-    padding var(--ui-duration) ease,
-    opacity var(--ui-duration) ease,
-    visibility 0s linear 0s;
-}
-.preview-tools[data-open='false'] {
-  width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  border-width: 0;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    width var(--ui-duration) ease,
-    padding var(--ui-duration) ease,
-    opacity var(--ui-duration) ease,
-    visibility 0s linear var(--ui-duration);
-}
-.preview-tools .field {
-  min-width: 192px;
-}
-.stage-meta {
-  white-space: nowrap;
-  font-size: var(--ui-fs-caption);
-  color: var(--ui-text-2);
-  font-variant-numeric: tabular-nums;
-}
 .stage-frame {
   position: relative;
   flex: 1;
@@ -772,33 +735,21 @@ summary::-webkit-details-marker {
   box-shadow: var(--ui-shadow-1);
 }
 
-/* --- Panneau de paramètres (latéral fixe) --- */
+/* --- Panneau de paramètres : intégré, blanc, bouton principal en bas --- */
 .settings {
-  position: fixed;
-  top: var(--header-h);
-  right: var(--gap);
-  bottom: calc(var(--bottom-space) + var(--gap));
-  width: var(--panel-w);
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-r-container);
-  box-shadow: var(--ui-shadow-1);
+  border-left: 1px solid var(--ui-border);
   overflow: hidden;
-  z-index: 2;
-}
-.settings[data-open='false'] {
-  width: 48px;
-  bottom: auto;
 }
 .settings-toggle {
   justify-content: flex-start;
-  min-height: 44px;
+  min-height: 48px;
   border: 0;
-  border-bottom: 1px solid var(--ui-border);
   border-radius: 0;
-  padding: 0 var(--ui-panel-pad);
+  padding: 0 var(--ui-s-6);
   font-size: var(--ui-fs-caption);
   color: var(--ui-text-2);
   background: transparent;
@@ -810,11 +761,35 @@ summary::-webkit-details-marker {
 }
 .settings-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-10);
+  min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  padding: var(--ui-s-2) var(--ui-s-8) 0;
+}
+.settings-body[hidden] {
+  display: none;
+}
+.selection-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.panel-cta {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: var(--ui-s-4) 0 var(--ui-s-6);
+  background: var(--ui-surface);
+}
+.panel-cta > button {
+  width: 100%;
+  min-height: 40px;
 }
 .settings-section {
-  padding: var(--ui-s-2) var(--ui-panel-pad) var(--ui-s-4);
+  padding: 0;
 }
 .settings-section > h3,
 .section-head {
@@ -838,16 +813,13 @@ summary::-webkit-details-marker {
 .section-head .muted {
   font-size: var(--ui-fs-caption);
 }
-/* Groupes du panneau sans sélection : séparés par une ligne pleine largeur. */
-.settings-group + .settings-group {
-  border-top: 1px solid var(--ui-border);
-}
+/* Groupes du panneau sans sélection : séparés par l'espace, sans ligne. */
 .settings-group > summary {
   display: flex;
   align-items: center;
   gap: var(--ui-s-2);
-  min-height: 48px;
-  padding: 0 var(--ui-panel-pad);
+  min-height: 40px;
+  margin-bottom: var(--ui-s-3);
 }
 .settings-group > summary h2 {
   font-size: var(--ui-fs-section);
@@ -858,10 +830,6 @@ summary::-webkit-details-marker {
 }
 .settings-group > .settings-section > * {
   margin: 0;
-}
-.settings-sub {
-  border-top: 1px solid var(--ui-border);
-  padding-top: var(--ui-s-4);
 }
 .control-set {
   border: 0;
@@ -974,26 +942,17 @@ summary::-webkit-details-marker {
 
 /* --- Dock : messages et prompt --- */
 .dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 0 var(--gap) var(--gap);
-  z-index: 3;
-  pointer-events: none;
-}
-.dock > * {
-  pointer-events: auto;
-}
-.dock-messages {
-  position: absolute;
-  bottom: 100%;
-  left: var(--gap);
-  width: min(720px, calc(100vw - var(--panel-space) - 2 * var(--gap)));
   display: flex;
   flex-direction: column;
   gap: var(--ui-s-2);
-  margin-bottom: var(--ui-s-2);
+}
+.dock-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-2);
+}
+.dock-messages:empty {
+  display: none;
 }
 .dock-messages > p {
   margin: 0;
@@ -1004,13 +963,11 @@ summary::-webkit-details-marker {
   justify-content: space-between;
   align-items: center;
   gap: var(--ui-s-3);
-  box-shadow: var(--ui-shadow-pop);
 }
 .reply {
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-r-container);
-  box-shadow: var(--ui-shadow-pop);
   overflow: hidden;
 }
 .reply-toggle {
@@ -1039,7 +996,6 @@ summary::-webkit-details-marker {
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-r-container);
-  box-shadow: var(--ui-shadow-pop);
 }
 .mode-select select {
   border: 0;
@@ -1187,11 +1143,6 @@ del {
 .skip-link:focus {
   top: var(--ui-s-3);
 }
-@media (max-width: 1200px) {
-  .studio {
-    --panel-w: 320px;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
@@ -1270,10 +1221,7 @@ del {
 .mode-toggle kbd {
   margin-left: var(--ui-s-1);
 }
-.stage-frame[data-mode='edit'] {
-  box-shadow: inset 0 0 0 1px var(--ui-border);
-  border-radius: var(--ui-r-container);
-}
+
 .edit-overlay {
   position: absolute;
   inset: 0;
@@ -1526,8 +1474,8 @@ del {
 }
 .ins-head {
   display: grid;
-  gap: var(--ui-s-2);
-  padding-bottom: var(--ui-s-4);
+  gap: var(--ui-s-3);
+  padding-bottom: var(--ui-s-10);
 }
 .ins-head-row {
   display: flex;
@@ -1538,8 +1486,8 @@ del {
   flex: 1;
   font-weight: var(--ui-fw-medium);
 }
-.ins-section {
-  border-top: 1px solid var(--ui-border);
+.ins-section + .ins-section {
+  margin-top: var(--ui-s-10);
 }
 .ins-section > summary {
   display: flex;
@@ -1575,8 +1523,77 @@ del {
 .ins-body {
   display: flex;
   flex-direction: column;
+  gap: var(--ui-s-3);
+  padding-top: var(--ui-s-2);
+}
+/* Sous-bloc d'un groupe : intertitre discret, sans repli ni ligne. */
+.ins-sub {
+  display: flex;
+  flex-direction: column;
   gap: var(--ui-s-2);
-  padding: var(--ui-s-1) 0 var(--ui-s-6);
+}
+.ins-sub + .ins-sub,
+.ins-body > * + .ins-sub {
+  margin-top: var(--ui-s-3);
+}
+.ins-sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--ui-control-h);
+}
+.ins-sub-head h5 {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s-2);
+  margin: 0;
+  font-size: var(--ui-fs-caption);
+  font-weight: var(--ui-fw-medium);
+  color: var(--ui-text-2);
+}
+
+/* Menu d'état : seul élément superposé au contenu. */
+.state-menu {
+  position: relative;
+  align-self: flex-start;
+}
+.state-trigger {
+  gap: var(--ui-s-2);
+  padding: 0 var(--ui-s-2) 0 var(--ui-s-3);
+}
+.menu {
+  position: absolute;
+  top: calc(100% + var(--ui-s-1));
+  left: 0;
+  z-index: 10;
+  min-width: 220px;
+  padding: 6px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-container);
+  box-shadow: var(--ui-shadow-pop);
+}
+.menu-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--ui-s-3);
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--ui-r-item);
+  background: transparent;
+  font-weight: var(--ui-fw-regular);
+}
+.menu-item[aria-checked='true'] {
+  background: var(--ui-hover);
+  font-weight: var(--ui-fw-medium);
+}
+.menu-item .badge {
+  margin-left: auto;
+}
+.menu-separator {
+  height: 1px;
+  margin: 6px var(--ui-s-2);
+  background: var(--ui-border);
 }
 .ins-field {
   display: grid;
@@ -1743,22 +1760,13 @@ del {
 
 /* Panneau Calques (mode Édition) : écrans, insertion, arbre. */
 .layers {
-  flex: none;
-  width: 240px;
   display: flex;
   flex-direction: column;
   gap: var(--ui-s-3);
-  padding: var(--ui-s-3) var(--ui-s-2);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-r-container);
-  box-shadow: var(--ui-shadow-1);
-  overflow: auto;
   font-size: var(--ui-fs-caption);
 }
 .layers-screens {
-  padding-bottom: var(--ui-s-3);
-  border-bottom: 1px solid var(--ui-border);
+  padding-bottom: var(--ui-s-4);
 }
 .layers-head {
   display: flex;

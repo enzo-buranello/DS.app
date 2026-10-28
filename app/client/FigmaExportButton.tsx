@@ -171,7 +171,14 @@ export default function FigmaExportButton({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={menuId}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          // Le choix suit la vue courante à chaque ouverture.
+          if (!open) {
+            setKind(initialKind);
+            setNewName(NEW_PAGE[initialKind]);
+          }
+          setOpen(!open);
+        }}
       >
         <Export />
         Exporter

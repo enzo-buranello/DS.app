@@ -5,10 +5,10 @@ import type { TokenKey, Tokens, TokenValue } from '../shared/model.js';
 import type { Selection } from './selection.js';
 
 const KIND: Record<Selection['kind'], string> = {
-  token: 'Token',
+  token: 'Élément du thème',
   master: 'Composant maître',
-  instance: 'Instance',
-  node: 'Calque',
+  instance: 'Copie de composant',
+  node: 'Élément',
 };
 
 // Panneau de la sélection : en-tête, éditeur de token, ou inspecteur (children).
@@ -17,12 +17,15 @@ export function SelectionPanel({
   tokens,
   onToken,
   onClose,
+  done,
   children,
 }: {
   selection: Selection;
   tokens: Tokens;
   onToken: (key: TokenKey, value: TokenValue) => void;
   onClose: () => void;
+  /** Bouton principal « Terminer » (multi-sélection ; le token l'a d'office). */
+  done?: boolean;
   children?: ReactNode;
 }) {
   const s = selection;
@@ -103,13 +106,13 @@ export function SelectionPanel({
           <X />
         </button>
       </div>
-      {s.kind === 'token' ? (
-        <>
-          {tokenEditor()}
-          <p className="token-hint">S’applique partout où il est utilisé.</p>
-        </>
-      ) : (
-        children
+      {s.kind === 'token' ? tokenEditor() : children}
+      {(done || s.kind === 'token') && (
+        <div className="panel-cta">
+          <button type="button" className="studio-primary" onClick={onClose}>
+            Terminer
+          </button>
+        </div>
       )}
     </section>
   );
