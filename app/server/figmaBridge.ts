@@ -131,6 +131,8 @@ interface Connection {
   socket: Socket;
   fileKey: string | null;
   fileName: string | null;
+  /** Annoncé par le plugin ; undefined tant qu'il ne s'est pas présenté. */
+  exportVersion?: number | null;
 }
 
 export class FigmaBridge {
@@ -170,6 +172,9 @@ export class FigmaBridge {
       connections: this.connections.map((c) => ({
         fileKey: c.fileKey,
         fileName: c.fileName,
+        ...(c.exportVersion !== undefined
+          ? { exportVersion: c.exportVersion }
+          : {}),
       })),
     };
   }
@@ -278,8 +283,11 @@ export class FigmaBridge {
     connection: Connection,
     fileKey: string | null,
     fileName: string,
+    /** Seulement par l'annonce du plugin (hello) ; sinon inchangé. */
+    exportVersion?: number | null,
   ) {
     if (!this.connections.includes(connection)) return;
+    if (exportVersion !== undefined) connection.exportVersion = exportVersion;
     connection.fileKey = fileKey;
     connection.fileName = fileName || null;
     for (const other of this.connections)
@@ -301,8 +309,13 @@ export class FigmaBridge {
     }
     const hello = helloSchema.safeParse(raw);
     if (hello.success) {
-      const { fileKey, fileName } = hello.data.hello;
-      return this.identify(connection, fileKey, fileName);
+      const { fileKey, fileName, exportVersion } = hello.data.hello;
+      return this.identify(
+        connection,
+        fileKey,
+        fileName,
+        exportVersion ?? null,
+      );
     }
     const progress = progressSchema.safeParse(raw);
     if (progress.success) {
@@ -387,6 +400,15 @@ export class FigmaBridge {
           ? 'Fichier Figma cible non ouvert : lance le plugin DS-Studio dans ce fichier.'
           : 'Lance le plugin DS-Studio dans Figma desktop.',
         503,
+      );
+    // Plugin resté ouvert dans Figma pendant une mise à jour : son code date.
+    if (
+      connection.exportVersion !== undefined &&
+      connection.exportVersion !== payload.version
+    )
+      throw new StudioError(
+        `Le plugin DS-Studio Bridge ouvert dans Figma date d’avant la mise à jour (format v${connection.exportVersion ?? 1}, attendu v${payload.version}). Fermez-le puis relancez-le dans Figma.`,
+        409,
       );
     if ([...this.jobs.values()].some((j) => j.state === 'running'))
       throw new StudioError('Un export est déjà en cours.', 409);

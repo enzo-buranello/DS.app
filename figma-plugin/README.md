@@ -18,11 +18,20 @@ Bouton **↗ Exporter** (barre principale ou barre d'aperçu) : choisissez
 ou nouvelle). Le plugin écrit des éléments Figma natifs :
 
 - variables de la collection « DS-Studio » (couleurs, espacements, rayons,
-  typo), styles de texte et d'ombre ;
-- composants et component sets avec variantes, en auto layout, propriétés liées
-  aux variables (fond, rayon, gap, padding, taille de texte) ;
+  typo), styles de texte et d'effets ;
+- composants et component sets avec variantes ; chaque état (survol, appuyé,
+  focus, désactivé, invalide) devient une variante « Interaction=… » ;
+  propriétés de composant (texte, booléen, échange d'instance) liées à leurs
+  calques ;
+- propriétés natives lues dans le document de nœuds (format d'export v2) :
+  fonds empilés (couleur, dégradé, image), contours (par côté, alignement,
+  tirets), effets (ombres, flous), auto layout (retour à la ligne, inversion
+  de l'empilement), tailles hug/fill/fixe et limites, position absolue et
+  contraintes, rotation, opacité, fusion, rognage, lissage des coins,
+  typographie complète ; liaisons aux variables (fonds, contours, ombres,
+  rayons, gap, padding, taille et police) ;
 - planches Couleurs, Typographie, Espacements et Composants ; l'aperçu en frames
-  auto layout avec des instances des composants.
+  auto layout avec des instances (overrides et valeurs de propriétés).
 
 Chaque élément porte `pluginData` `dsStudioId` : un ré-export met à jour sur
 place et ne crée que le manquant. Un élément qui n'existe plus dans l'app est

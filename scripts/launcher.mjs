@@ -91,7 +91,12 @@ async function launch() {
     'Content-Type': 'application/json',
   };
   const state = await (await fetch(origin + '/api/status', { headers })).json();
-  if (state.ready && state.phase === 'arrêté' && !state.busy) {
+  // Arrêté, ou actif sur un code plus ancien : (re)démarrage automatique.
+  if (
+    state.ready &&
+    !state.busy &&
+    (state.phase === 'arrêté' || state.serverStale)
+  ) {
     await fetch(origin + '/api/start', {
       method: 'POST',
       headers,
@@ -234,6 +239,7 @@ async function serve() {
       phase,
       error,
       busy,
+      serverStale: !!record && !busy && !!(await control(record))?.stale,
       ...(await requirements()),
       url: record ? `http://127.0.0.1:${record.port}` : null,
       pid: record?.pid ?? null,
@@ -265,9 +271,14 @@ async function serve() {
   async function startServer() {
     const record = await serverRecord();
     if (record) {
-      observedServer = record;
-      phase = 'actif';
-      return;
+      // Serveur lancé avant une mise à jour du code : relancé proprement,
+      // sinon l'app récente parlerait à un serveur ancien (routes absentes).
+      if (!(await control(record))?.stale) {
+        observedServer = record;
+        phase = 'actif';
+        return;
+      }
+      await stopServer();
     }
     if (!(await requirements()).ready)
       throw new Error(
@@ -454,8 +465,13 @@ async function serve() {
       await stopServer();
       await startServer();
     } else if (name === 'open') {
-      const record = await serverRecord();
+      let record = await serverRecord();
       if (!record) throw new Error('Démarrez DS-Studio avant de l’ouvrir.');
+      // Jamais d'ouverture sur un serveur périmé : relance d'abord.
+      if ((await control(record))?.stale) {
+        await startServer();
+        record = await serverRecord();
+      }
       await openBrowser(`http://127.0.0.1:${record.port}`);
     } else if (name === 'quit') {
       await stopServer();

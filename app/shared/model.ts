@@ -117,6 +117,10 @@ export const agentReplySchema = z
   .object({
     message: z.string().max(12000),
     changes: z.array(changeSchema).max(20),
+    // Élément sélectionné : champs à modifier, validés par le contrôleur.
+    patch: z.record(z.string(), z.unknown()).optional(),
+    // Patchs de nœuds (propriétés Figma), validés par les schémas du document.
+    nodes: z.array(z.record(z.string(), z.unknown())).max(60).optional(),
   })
   .strict();
 export type AgentReply = z.infer<typeof agentReplySchema>;

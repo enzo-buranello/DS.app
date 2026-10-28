@@ -66,6 +66,8 @@ export const helloSchema = z
       .object({
         fileKey: z.string().max(80).nullable(),
         fileName: z.string().max(200),
+        /** Format d'export compris par le plugin (absent : plugin ancien). */
+        exportVersion: z.number().int().min(1).max(1000).optional(),
       })
       .strict(),
   })
@@ -94,7 +96,12 @@ export interface FigmaStatus {
   fileName: string | null;
   error: string | null;
   /** Une connexion par fichier Figma où le plugin tourne. */
-  connections: { fileKey: string | null; fileName: string | null }[];
+  connections: {
+    fileKey: string | null;
+    fileName: string | null;
+    /** null : plugin annoncé sans version (antérieur au format v2). */
+    exportVersion?: number | null;
+  }[];
 }
 /** État vu par l'app : pont + cible du projet. */
 export interface StudioFigmaStatus extends FigmaStatus {

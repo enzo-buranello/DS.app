@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { UploadSimple } from '@phosphor-icons/react';
 import type { DSComponent } from '../shared/component.js';
 import {
   draftToComponent,
@@ -126,8 +127,9 @@ export default function ImageImport({
           if (dropped) void analyse(dropped);
         }}
       >
-        <span>Glisser une image ici</span>
-        <small>ou parcourir · Cmd+V · PNG, JPG, WebP, SVG · 4 Mo max</small>
+        <UploadSimple size={20} aria-hidden="true" />
+        <span>Glisser ou coller une image</span>
+        <small>PNG, JPG, WebP, SVG · 4 Mo max</small>
       </div>
       <input
         ref={input}

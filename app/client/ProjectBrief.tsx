@@ -1,4 +1,9 @@
 import { useEffect, useState } from 'react';
+import {
+  ArrowsClockwise,
+  CaretRight,
+  DownloadSimple,
+} from '@phosphor-icons/react';
 import type { ProjectSnapshot } from '../shared/project.js';
 import { downloadText, request } from './api.js';
 
@@ -20,11 +25,12 @@ export default function ProjectBrief() {
   }, []);
   return (
     <details className="project-brief">
-      <summary>Mon PFE · brief privé</summary>
-      <p>
-        Définissez votre contexte. Stocké sur ce poste, hors Git. Le lien Figma
-        est un repère, pas une synchronisation.
-      </p>
+      <summary>
+        <CaretRight className="chevron" />
+        <span>Mon PFE</span>
+        <span className="badge">Privé</span>
+      </summary>
+      <p>Stocké sur ce poste, hors Git.</p>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -86,13 +92,14 @@ export default function ProjectBrief() {
               )}
             </label>
           ))}
-          <button className="studio-primary" disabled={busy}>
+          <button disabled={busy}>
             {busy ? 'Enregistrement…' : 'Enregistrer le brief'}
           </button>
         </form>
       )}
       <button type="button" disabled={busy} onClick={() => void load()}>
-        Recharger le brief
+        <ArrowsClockwise />
+        Recharger
       </button>
       <button
         type="button"
@@ -108,12 +115,11 @@ export default function ProjectBrief() {
             .catch((e) => setError(e.message));
         }}
       >
-        Exporter le brief enregistré (.md)
+        <DownloadSimple />
+        Exporter (.md)
       </button>
       <p className="privacy-note">
-        Si vous choisissez Codex, ce brief rejoint le contexte envoyé au
-        fournisseur. Ne saisissez pas de données sensibles. Pour votre agent
-        externe, exportez vos choix dans workspace/PFE.md après relecture.
+        Envoyé à l’agent avec Codex : aucune donnée sensible.
       </p>
     </details>
   );

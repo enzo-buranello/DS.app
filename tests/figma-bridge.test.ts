@@ -9,6 +9,7 @@ import { FigmaBridge } from '../app/server/figmaBridge.js';
 import { Store } from '../app/server/store.js';
 import { createStudioServer } from '../app/server/http.js';
 import { tokensSchema } from '../app/shared/model.js';
+import { EXPORT_VERSION as CURRENT_EXPORT } from '../app/shared/figmaExport.js';
 
 const until = async (check: () => boolean, ms = 2000) => {
   const end = Date.now() + ms;
@@ -182,6 +183,18 @@ test('routes HTTP du pont : état et commande relayée', async (t) => {
       .status,
     400,
   );
+  // Onglet resté sur l'ancien client : format v1 refusé avec la marche à suivre.
+  const old = await fetch(origin + '/api/figma/export', {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'X-DS-Studio': boot.csrf,
+    },
+    body: JSON.stringify({ version: 1, kind: 'design_system' }),
+  });
+  assert.equal(old.status, 409);
+  assert.match((await old.json()).error, /Rechargez la page/);
 });
 
 test('export : lots réassemblés, progression relayée, annulation propagée', async (t) => {
@@ -195,6 +208,7 @@ test('export : lots réassemblés, progression relayée, annulation propagée', 
     name: `Composant ${i}`,
     set: null,
     variant: null,
+    properties: [],
     root: {
       name: 'x'.repeat(150),
       x: 0,
@@ -216,13 +230,14 @@ test('export : lots réassemblés, progression relayée, annulation propagée', 
     },
   });
   const payload: import('../app/shared/figmaExport.js').ExportPayload = {
-    version: EXPORT_VERSION as 1,
+    version: EXPORT_VERSION as 2,
     kind: 'design_system' as const,
     page: { mode: 'current' as const },
     variables: [],
     textStyles: [],
     effectStyles: [],
     components: Array.from({ length: 300 }, (_, i) => leaf(i)),
+    images: [],
   };
   assert.ok(JSON.stringify(payload).length > CHUNK_SIZE, 'au moins deux lots');
   // Plugin simulé : réassemble, publie l'avancement, respecte l'annulation.
@@ -294,5 +309,44 @@ test('export : lots réassemblés, progression relayée, annulation propagée', 
   assert.equal(cancelledJob.state, 'cancelled');
   await until(() => cancelled.size === 1);
   assert.equal(bridge.job(second.id).state, 'cancelled');
+  ws.close();
+});
+
+test('plugin d’une version antérieure : export refusé avant envoi', async (t) => {
+  const bridge = new FigmaBridge(0, 500);
+  await bridge.listen();
+  t.after(() => bridge.close());
+  const payload = {
+    version: CURRENT_EXPORT as 2,
+    kind: 'design_system' as const,
+    page: { mode: 'current' as const },
+    variables: [],
+    textStyles: [],
+    effectStyles: [],
+    components: [],
+    images: [],
+  };
+  const ws = await fakePlugin(bridge.status.port, handlers('Nosh'));
+  // Plugin d'avant le format v2 : il s'annonce sans version.
+  ws.send(JSON.stringify({ hello: { fileKey: 'old', fileName: 'Nosh' } }));
+  await until(() => bridge.status.connections[0]?.fileKey === 'old');
+  assert.equal(bridge.status.connections[0].exportVersion, null);
+  assert.throws(
+    () => bridge.startExport(payload),
+    /date d’avant la mise à jour \(format v1, attendu v2\)/,
+  );
+  // Relancé : il annonce le format courant, l'export part.
+  ws.send(
+    JSON.stringify({
+      hello: {
+        fileKey: 'old',
+        fileName: 'Nosh',
+        exportVersion: CURRENT_EXPORT,
+      },
+    }),
+  );
+  await until(() => bridge.status.connections.at(-1)?.exportVersion === 2);
+  const job = bridge.startExport(payload);
+  assert.equal(job.state, 'running');
   ws.close();
 });

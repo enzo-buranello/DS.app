@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { X } from '@phosphor-icons/react';
 import type { FigmaCommand, FigmaStatus } from '../shared/figmaProtocol.js';
 import { parseFigmaUrl } from '../shared/figmaTarget.js';
 import {
@@ -132,13 +133,19 @@ export default function FigmaBridgePanel() {
       >
         <div className="dialog-head">
           <h2 id="figma-test-title">Pont Figma</h2>
-          <button onClick={() => setOpen(false)}>Fermer</button>
+          <button
+            className="icon-btn"
+            aria-label="Fermer"
+            onClick={() => setOpen(false)}
+          >
+            <X />
+          </button>
         </div>
         <p className="figma-test-state">
           {connected
             ? `Connecté à « ${status?.fileName ?? 'fichier sans nom'} ».`
             : state === 'waiting'
-              ? `En attente du plugin : dans Figma Desktop, lancez Plugins › Development › DS-Studio Bridge (port ${status?.port}).`
+              ? `En attente du plugin · Plugins › Development › DS-Studio Bridge (port ${status?.port}).`
               : (status?.error ?? 'Pont Figma déconnecté.')}
         </p>
         <div className="figma-test-grid">
@@ -205,7 +212,7 @@ export default function FigmaBridgePanel() {
           </section>
         </div>
         <section aria-label="Résultat" className="figma-result">
-          {output ? (
+          {output && (
             <>
               <p role="status" className={output.ok ? 'notice' : 'error'}>
                 {output.command} · {output.ok ? 'ok' : 'erreur'} ·{' '}
@@ -217,8 +224,6 @@ export default function FigmaBridgePanel() {
                   : String(output.value)}
               </pre>
             </>
-          ) : (
-            <p className="token-hint">Le résultat JSON s’affiche ici.</p>
           )}
         </section>
       </dialog>
@@ -321,7 +326,7 @@ function TargetPopover({
             </strong>
           </>
         ) : (
-          'Aucune cible : l’export va dans le fichier où le plugin a été lancé en dernier.'
+          'Aucune cible : dernier fichier où le plugin a été lancé.'
         )}
       </p>
       <form
@@ -335,7 +340,7 @@ function TargetPopover({
           <input
             ref={input}
             value={url}
-            placeholder="https://www.figma.com/design/…?node-id=…"
+            placeholder="URL Figma"
             aria-invalid={!!fieldError}
             aria-describedby={fieldError ? errorId : undefined}
             disabled={phase === 'checking' || phase === 'waiting'}
@@ -355,13 +360,12 @@ function TargetPopover({
           className="studio-primary"
           disabled={phase === 'checking' || phase === 'waiting'}
         >
-          {phase === 'checking' ? 'Vérification…' : 'Valider la cible'}
+          {phase === 'checking' ? 'Vérification…' : 'Valider'}
         </button>
       </form>
       {phase === 'waiting' && (
         <p className="export-problem" role="status">
-          Lance le plugin DS-Studio dans ce fichier (Plugins › Development ›
-          DS-Studio Bridge). En attente…
+          En attente du plugin DS-Studio dans ce fichier…
         </p>
       )}
       {phase === 'timeout' && (
@@ -399,11 +403,11 @@ function TargetPopover({
                 .catch((e) => setProblem((e as Error).message))
             }
           >
-            Retirer la cible
+            Retirer
           </button>
         )}
         <button type="button" onClick={onTest}>
-          Panneau de test…
+          Tester le pont
         </button>
       </div>
     </div>

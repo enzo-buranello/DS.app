@@ -1,13 +1,13 @@
-import {
-  createElement,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
-import type { Vector, VectorNode } from '../shared/vector.js';
-import { tokenCss, type Tokens } from '../shared/model.js';
-import { componentCss, type DSComponent } from '../shared/component.js';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { tokenCss, tokenKeys, type Tokens } from '../shared/model.js';
+import type { DSComponent } from '../shared/component.js';
+import { screenOf, screenSlug, type Doc } from '../shared/doc.js';
+import { componentDoc } from '../shared/migrate.js';
+import type { Runtime } from '../shared/render.js';
+import { NodeTree, type PreviewState } from './NodeView.js';
 
+// Tout ce qui est rendu (catalogue, aperçu, export) vient du document de
+// nœuds, par une seule traduction nœud → CSS (shared/nodeCss.ts).
 export function DSProvider({
   tokens,
   children,
@@ -21,283 +21,157 @@ export function DSProvider({
     </div>
   );
 }
-// Marqueurs lus par l'export Figma : id stable (dsStudioId), nom, component set
-// et variante au format Figma « Propriété=Valeur, … ».
-export const dsMark = (
-  id: string,
-  name: string,
-  set?: string,
-  variant?: string,
-) => ({
-  'data-ds-id': id,
-  'data-ds-name': name,
-  ...(set ? { 'data-ds-set': set } : {}),
-  ...(variant ? { 'data-ds-variant': variant } : {}),
-});
-const variantName = {
-  primary: 'Principal',
-  secondary: 'Secondaire',
-  danger: 'Danger',
-} as const;
-export function Button({
-  variant = 'primary',
-  children,
-  disabled = false,
-  onClick,
-}: {
-  variant?: 'primary' | 'secondary' | 'danger';
-  children: ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      className={`ds-button ${variant}`}
-      disabled={disabled}
-      onClick={onClick}
-      {...dsMark(
-        `button/${variant}${disabled ? '-disabled' : ''}`,
-        'Button',
-        'Button',
-        `Variante=${variantName[variant]}, État=${disabled ? 'Désactivé' : 'Défaut'}`,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-export function BookingCard() {
-  const [booked, setBooked] = useState(false);
-  return (
-    <article
-      className="ds-card"
-      {...dsMark('booking-card', 'Carte réservation')}
-    >
-      <div className="card-kicker">ATELIER · 45 MIN</div>
-      <h3>Faire moins, mais mieux.</h3>
-      <p>Un atelier pour imaginer des services plus attentifs au quotidien.</p>
-      <div className="card-meta">
-        <span className="ds-badge">6 places disponibles</span>
-        <span>Gratuit</span>
-      </div>
-      <Button onClick={() => setBooked(!booked)}>
-        {booked ? 'Réservation confirmée ✓' : 'Réserver une place'}
-      </Button>
-      <span role="status" className="ds-feedback">
-        {booked ? 'Inscription de démonstration, aucune donnée envoyée.' : ''}
-      </span>
-    </article>
-  );
-}
-export function ExampleForm() {
-  const [sent, setSent] = useState(false);
-  return (
-    <form
-      {...dsMark('form', 'Formulaire')}
-      className="ds-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setSent(true);
-      }}
-    >
-      <label>
-        Votre prénom
-        <input placeholder="Camille" required onChange={() => setSent(false)} />
-      </label>
-      <label>
-        Adresse e-mail
-        <input
-          type="email"
-          placeholder="camille@example.com"
-          required
-          onChange={() => setSent(false)}
-        />
-      </label>
-      <label>
-        Champ désactivé
-        <input placeholder="Non disponible" disabled />
-      </label>
-      <label className="ds-check">
-        <input type="checkbox" required /> J’accepte les conditions de
-        démonstration
-      </label>
-      <button className="ds-button primary" type="submit">
-        S’inscrire
-      </button>
-      <p role="status">
-        {sent ? 'Merci ! Démonstration locale, aucune inscription réelle.' : ''}
-      </p>
-    </form>
-  );
-}
-export function Navigation() {
-  const [tab, setTab] = useState('Découvrir');
-  return (
-    <nav
-      aria-label="Navigation du scénario"
-      className="ds-nav"
-      {...dsMark('navigation', 'Navigation')}
-    >
-      {['Découvrir', 'Favoris', 'Profil'].map((t) => (
-        <button
-          key={t}
-          aria-current={tab === t ? 'page' : undefined}
-          onClick={() => setTab(t)}
-        >
-          {t}
-        </button>
-      ))}
-      <p className="nav-context" aria-live="polite">
-        {tab === 'Favoris'
-          ? 'Vos ateliers favoris apparaîtront ici.'
-          : tab === 'Profil'
-            ? 'Votre espace personnel de démonstration.'
-            : 'Des idées à explorer près de chez vous.'}
-      </p>
-    </nav>
-  );
-}
-// Calque vectoriel : arbre validé rendu élément par élément, jamais en HTML brut.
-const camel = (name: string) =>
-  name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-function vectorElement(node: VectorNode, key: number): ReactNode {
-  return createElement(
-    node.tag,
-    {
-      key,
-      ...Object.fromEntries(
-        Object.entries(node.attrs).map(([k, v]) => [camel(k), v]),
-      ),
-    },
-    node.children.map(vectorElement),
-  );
-}
-export function VectorView({ vector }: { vector: Vector }) {
-  return (
-    <svg
-      viewBox={vector.viewBox}
-      width={vector.width}
-      height={vector.height}
-      aria-hidden="true"
-      style={{ flex: 'none' }}
-    >
-      {vector.nodes.map(vectorElement)}
-    </svg>
-  );
-}
-// Composant créé à la main : le style vient du modèle, les tokens restent des var().
+// Composant créé à la main : converti en nœuds, rendu comme les autres.
 export function ComponentView({ component }: { component: DSComponent }) {
+  const doc = useMemo(() => componentDoc(component), [component]);
+  return <NodeTree doc={doc} root={`custom/${component.id}`} />;
+}
+// Tokens du DS affichés pour être sélectionnés (vue DS seulement, jamais exportés).
+function TokenBoard({ tokens }: { tokens: Tokens }) {
+  const group = (prefix: string) =>
+    tokenKeys.filter((k) => k.startsWith(prefix));
   return (
-    <div
-      className="ds-custom"
-      style={componentCss(component) as CSSProperties}
-      {...dsMark(
-        `custom/${component.id}`,
-        component.name,
-        component.set?.name,
-        component.set
-          ? Object.entries(component.set.properties)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(', ') || undefined
-          : undefined,
-      )}
-    >
-      {component.vector && <VectorView vector={component.vector} />}
-      {component.icon && <span aria-hidden="true">{component.icon}</span>}
-      <span>{component.label}</span>
+    <div className="token-board">
+      <div className="token-swatches">
+        {group('color.').map((k) => (
+          <div
+            key={k}
+            className="token-item"
+            data-ds-token={k}
+            data-ds-name={k}
+          >
+            <span
+              className="token-chip"
+              style={{ background: String(tokens[k].$value) }}
+            />
+            <small>{k.slice(6)}</small>
+          </div>
+        ))}
+      </div>
+      <div className="token-rows">
+        {group('font.').map((k) => (
+          <div
+            key={k}
+            className="token-item"
+            data-ds-token={k}
+            data-ds-name={k}
+          >
+            <span
+              style={
+                k === 'font.family'
+                  ? { fontFamily: String(tokens[k].$value) }
+                  : { fontSize: `${tokens[k].$value}px` }
+              }
+            >
+              Aa
+            </span>
+            <small>
+              {k} · {tokens[k].$value}
+              {tokens[k].$type === 'dimension' ? ' px' : ''}
+            </small>
+          </div>
+        ))}
+        {[...group('space.'), ...group('radius.')].map((k) => (
+          <div
+            key={k}
+            className="token-item"
+            data-ds-token={k}
+            data-ds-name={k}
+          >
+            {k.startsWith('space.') ? (
+              <span
+                className="token-space"
+                style={{ width: `${tokens[k].$value}px` }}
+              />
+            ) : (
+              <span
+                className="token-radius"
+                style={{ borderRadius: `${tokens[k].$value}px` }}
+              />
+            )}
+            <small>
+              {k} · {tokens[k].$value} px
+            </small>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 export function Catalogue({
   tokens,
-  extra,
+  doc,
+  preview,
 }: {
   tokens: Tokens;
-  extra?: ReactNode;
+  doc: Doc;
+  preview?: PreviewState | null;
 }) {
   return (
     <DSProvider tokens={tokens}>
       <div className="catalogue">
         <section>
-          <div className="section-label">01 / ACTIONS</div>
-          <h3>Un langage commun.</h3>
-          <p>Les mêmes tokens, du composant à l’écran.</p>
-          <div className="button-row">
-            <Button>Action principale</Button>
-            <Button variant="secondary">Secondaire</Button>
-            <Button variant="danger">Supprimer</Button>
-            <Button disabled>Indisponible</Button>
-          </div>
-          <p className="ds-caption">
-            Survolez, utilisez Tab et activez les boutons. Focus et états natifs
-            inclus.
-          </p>
+          <div className="section-label">00 / TOKENS</div>
+          <TokenBoard tokens={tokens} />
         </section>
-        <section>
-          <div className="section-label">02 / CONTENUS</div>
-          <BookingCard />
-        </section>
-        <section>
-          <div className="section-label">03 / SAISIE</div>
-          <ExampleForm />
-        </section>
-        <section>
-          <div className="section-label">04 / NAVIGATION</div>
-          <Navigation />
-        </section>
-        {extra && (
-          <section className="catalogue-custom">
-            <div className="section-label">05 / MES COMPOSANTS</div>
-            {extra}
-          </section>
-        )}
+        <NodeTree doc={doc} root={doc.components} preview={preview} />
       </div>
     </DSProvider>
   );
 }
+// Écrans de l'aperçu : « scenario » est l'écran de départ. En mode Test, les
+// interactions naviguent et changent les variantes (état propre à l'onglet).
 export function Scenario({
   tokens,
+  doc,
   scenario,
+  preview,
 }: {
   tokens: Tokens;
+  doc: Doc;
   scenario: string;
+  preview?: PreviewState | null;
 }) {
+  const [trail, setTrail] = useState<string[]>([screenOf(doc, scenario)]);
+  const [runtime, setRuntime] = useState<Runtime>({});
+  const screen = trail.at(-1)!;
+  const behaviour = useMemo(
+    () => ({
+      runtime,
+      setVariant: (key: string, v: Record<string, string>) =>
+        setRuntime((r) => ({ ...r, [key]: { ...r[key], ...v } })),
+      navigate: (id: string) => doc.nodes[id] && setTrail((t) => [...t, id]),
+      back: () => setTrail((t) => (t.length > 1 ? t.slice(0, -1) : t)),
+    }),
+    [runtime, doc],
+  );
   return (
     <DSProvider tokens={tokens}>
-      <div className="scenario">
-        <header className="scenario-head">
-          <strong>
-            lisière<span>®</span>
-          </strong>
-          <span className="ds-badge">Bordeaux</span>
-        </header>
-        <Navigation />
-        <main>
-          <div className="section-label">LE QUOTIDIEN, AUTREMENT</div>
-          <h1>
-            De petites idées.
-            <br />
-            De vrais liens.
-          </h1>
-          <p>Des ateliers pour apprendre, partager et se rencontrer.</p>
-          {scenario === 'form' ? (
-            <div className="ds-card">
-              <h2>Rejoignez le mouvement.</h2>
-              <ExampleForm />
-            </div>
-          ) : (
-            <div className="scenario-grid">
-              <BookingCard />
-              <article className="ds-card">
-                <div className="card-kicker">À VOTRE RYTHME</div>
-                <h3>Un quartier qui inspire.</h3>
-                <p>Explorez vos prochaines rencontres.</p>
-                <Button variant="secondary">Voir les ateliers</Button>
-              </article>
-            </div>
-          )}
-        </main>
-        <footer>lisière · Design System d’exemple fictif</footer>
+      <div className="scenario" data-screen={screenSlug(screen)}>
+        <NodeTree
+          doc={doc}
+          root={screen}
+          behaviour={behaviour}
+          preview={preview}
+        />
+      </div>
+    </DSProvider>
+  );
+}
+// Planche d'export Figma : chaque composant du document isolé, puis les
+// composants créés à la main.
+export function ExportSheet({ tokens, doc }: { tokens: Tokens; doc: Doc }) {
+  const ids = Object.values(doc.nodes)
+    .filter((n) => n.type === 'component')
+    .map((n) => n.id);
+  return (
+    <DSProvider tokens={tokens}>
+      <div className="export-sheet">
+        {ids.map((id) => (
+          <div className="export-item" key={id}>
+            <NodeTree doc={doc} root={id} />
+          </div>
+        ))}
       </div>
     </DSProvider>
   );

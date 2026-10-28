@@ -1089,7 +1089,9 @@
 		return new RegExp(`^${dateSource}T(?:${timeRegex})$`);
 	}
 	var anyString = /^[\s\S]{0,}$/;
+	var integer = /^-?\d+$/;
 	var number$1 = /^-?\d+(?:\.\d+)?$/;
+	var boolean$1 = /^(?:true|false)$/i;
 	var lowercase = /^[^A-Z]*$/;
 	var uppercase = /^[^a-z]*$/;
 	// node_modules/zod/v4/core/checks.js
@@ -1925,6 +1927,24 @@
 		$ZodCheckNumberFormat.init(inst, def);
 		$ZodNumber.init(inst, def);
 	});
+	var $ZodBoolean = /*@__PURE__*/ $constructor("$ZodBoolean", (inst, def) => {
+		$ZodType.init(inst, def);
+		inst._zod.pattern = boolean$1;
+		inst._zod.parse = (payload, _ctx) => {
+			if (def.coerce) try {
+				payload.value = Boolean(payload.value);
+			} catch (_) {}
+			const input = payload.value;
+			if (typeof input === "boolean") return payload;
+			payload.issues.push({
+				expected: "boolean",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		};
+	});
 	var $ZodUnknown = /*@__PURE__*/ $constructor("$ZodUnknown", (inst, def) => {
 		$ZodType.init(inst, def);
 		inst._zod.parse = (payload) => payload;
@@ -2617,6 +2637,140 @@
 		else break;
 		return final;
 	}
+	var $ZodRecord = /*@__PURE__*/ $constructor("$ZodRecord", (inst, def) => {
+		$ZodType.init(inst, def);
+		const memo = globalConfig.memoizer;
+		memo === null || memo === void 0 || memo.attach(inst);
+		inst._zod.parse = (payload, ctx) => {
+			const input = payload.value;
+			if (!isPlainObject(input)) {
+				payload.issues.push({
+					expected: "record",
+					code: "invalid_type",
+					input,
+					inst
+				});
+				return payload;
+			}
+			const proms = [];
+			const values = def.keyType._zod.values;
+			if (values && !def.partial) {
+				payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+				const recordKeys = /* @__PURE__ */ new Set();
+				for (const key of values) if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
+					recordKeys.add(typeof key === "number" ? key.toString() : key);
+					if (key === "__proto__") continue;
+					const keyResult = def.keyType._zod.run({
+						value: key,
+						issues: []
+					}, ctx);
+					if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+					if (keyResult.issues.length) {
+						payload.issues.push({
+							code: "invalid_key",
+							origin: "record",
+							issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+							input: key,
+							path: [key],
+							inst
+						});
+						continue;
+					}
+					const outKey = keyResult.value;
+					if (outKey === "__proto__") continue;
+					const result = def.valueType._zod.run({
+						value: input[key],
+						issues: []
+					}, ctx);
+					if (result instanceof Promise) proms.push(result.then((result) => {
+						if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+						payload.value[outKey] = result.value;
+					}));
+					else {
+						if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+						payload.value[outKey] = result.value;
+					}
+				}
+				let unrecognized;
+				for (const key in input) if (!recordKeys.has(key)) {
+					if (def.mode === "loose") {
+						if (key === "__proto__") continue;
+						payload.value[key] = input[key];
+					} else {
+						var _unrecognized;
+						unrecognized = (_unrecognized = unrecognized) !== null && _unrecognized !== void 0 ? _unrecognized : [];
+						unrecognized.push(key);
+					}
+				}
+				if (unrecognized && unrecognized.length > 0) payload.issues.push({
+					code: "unrecognized_keys",
+					input,
+					inst,
+					keys: unrecognized,
+					continue: true
+				});
+			} else {
+				payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+				let unrecognized;
+				for (const key of Reflect.ownKeys(input)) {
+					if (key === "__proto__") continue;
+					if (!Object.prototype.propertyIsEnumerable.call(input, key)) continue;
+					let keyResult = def.keyType._zod.run({
+						value: key,
+						issues: []
+					}, ctx);
+					if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+					if (typeof key === "string" && number$1.test(key) && keyResult.issues.length) {
+						const retryResult = def.keyType._zod.run({
+							value: Number(key),
+							issues: []
+						}, ctx);
+						if (retryResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+						if (retryResult.issues.length === 0) keyResult = retryResult;
+					}
+					if (keyResult.issues.length) {
+						if (def.mode === "loose") payload.value[key] = input[key];
+						else if (values) {
+							var _unrecognized2;
+							unrecognized = (_unrecognized2 = unrecognized) !== null && _unrecognized2 !== void 0 ? _unrecognized2 : [];
+							unrecognized.push(key);
+						} else payload.issues.push({
+							code: "invalid_key",
+							origin: "record",
+							issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+							input: key,
+							path: [key],
+							inst
+						});
+						continue;
+					}
+					const outKey = keyResult.value;
+					if (outKey === "__proto__") continue;
+					const result = def.valueType._zod.run({
+						value: input[key],
+						issues: []
+					}, ctx);
+					if (result instanceof Promise) proms.push(result.then((result) => {
+						if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+						payload.value[outKey] = result.value;
+					}));
+					else {
+						if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+						payload.value[outKey] = result.value;
+					}
+				}
+				if (unrecognized && unrecognized.length > 0) payload.issues.push({
+					code: "unrecognized_keys",
+					input,
+					inst,
+					keys: unrecognized,
+					continue: true
+				});
+			}
+			if (proms.length) return Promise.all(proms).then(() => payload);
+			return payload;
+		};
+	});
 	var $ZodEnum = /*@__PURE__*/ $constructor("$ZodEnum", (inst, def) => {
 		$ZodType.init(inst, def);
 		const values = getEnumValues(def.entries);
@@ -3592,6 +3746,10 @@
 		}, normalizeParams(params)));
 	}
 	// @__NO_SIDE_EFFECTS__
+	function _boolean(Class, params) {
+		return new Class(_objectSpread2({ type: "boolean" }, normalizeParams(params)));
+	}
+	// @__NO_SIDE_EFFECTS__
 	function _unknown(Class) {
 		return new Class({ type: "unknown" });
 	}
@@ -4211,7 +4369,36 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		extractDefs(ctx, schema);
 		return finalize(ctx, schema);
 	};
+	// \0@oxc-project+runtime@0.155.0/helpers/esm/objectWithoutPropertiesLoose.js
+	function _objectWithoutPropertiesLoose(r, e) {
+		if (null == r) return {};
+		var t = {};
+		for (var n in r) if ({}.hasOwnProperty.call(r, n)) {
+			if (e.includes(n)) continue;
+			t[n] = r[n];
+		}
+		return t;
+	}
+	// \0@oxc-project+runtime@0.155.0/helpers/esm/objectWithoutProperties.js
+	function _objectWithoutProperties(e, t) {
+		if (null == e) return {};
+		var o, r, i = _objectWithoutPropertiesLoose(e, t);
+		if (Object.getOwnPropertySymbols) {
+			var s = Object.getOwnPropertySymbols(e);
+			for (r = 0; r < s.length; r++) o = s[r], t.includes(o) || {}.propertyIsEnumerable.call(e, o) && (i[o] = e[o]);
+		}
+		return i;
+	}
 	// node_modules/zod/v4/core/json-schema-processors.js
+	var _excluded = [
+		"minimum",
+		"maximum",
+		"exclusiveMinimum",
+		"exclusiveMaximum",
+		"multipleOf",
+		"format",
+		"id"
+	];
 	var narrowMin = (agg, key, value) => {
 		if (agg[key] === void 0 || value > agg[key]) agg[key] = value;
 	};
@@ -4347,6 +4534,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			if (first !== void 0) json.multipleOf = first;
 			if (rest.length) json.allOf = [...(_json$allOf = json.allOf) !== null && _json$allOf !== void 0 ? _json$allOf : [], ...rest.map((m) => ({ multipleOf: m }))];
 		}
+	};
+	var booleanProcessor = (_schema, _ctx, json, _params) => {
+		json.type = "boolean";
 	};
 	var neverProcessor = (_schema, _ctx, json, _params) => {
 		json.not = {};
@@ -4506,6 +4696,99 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		const { minimum, maximum } = aggregateChecks(schema);
 		if (typeof minimum === "number") json.minItems = minimum;
 		if (typeof maximum === "number") json.maxItems = maximum;
+	};
+	/** JSON object keys are always strings, so a numeric record key schema is re-expressed over the
+	* numeric-string form the record parser matches. Deferred to `finalize`, after the flatten: a key
+	* behind a wrapper only carries its own `type` before then, and a union key only has its branches.
+	*
+	* A numeric bound cannot apply to a property name, so `minimum` and its siblings are dropped rather
+	* than carried over: keeping them beside `type: "string"` reproduces the match-nothing schema this
+	* exists to fix. A key that carries one therefore emits wider than the record parses — `z.record(z.number().min(5), V)`
+	* accepts `"3"` — which is the deliberate trade, since throwing on it would reject an ordinary schema
+	* outright. */
+	function stringifyKeyNames(bySchema, json, visited) {
+		var _json$enum;
+		if (json.$ref) {
+			var _bySchema$get;
+			if (visited.has(json)) return json;
+			visited.add(json);
+			const def = (_bySchema$get = bySchema.get(json)) === null || _bySchema$get === void 0 ? void 0 : _bySchema$get.def;
+			if (!def) return json;
+			const inlined = stringifyKeyNames(bySchema, def, visited);
+			return inlined === def ? json : inlined;
+		}
+		for (const keyword of ["anyOf", "oneOf"]) {
+			const branches = json[keyword];
+			if (!Array.isArray(branches)) continue;
+			const mapped = branches.map((branch) => stringifyKeyNames(bySchema, branch, visited));
+			if (mapped.some((branch, i) => branch !== branches[i])) json = _objectSpread2(_objectSpread2({}, json), {}, { [keyword]: mapped });
+		}
+		const types = Array.isArray(json.type) ? json.type : [json.type];
+		const numericType = !types.includes("string") && types.some((t) => t === "number" || t === "integer");
+		const values = (_json$enum = json.enum) !== null && _json$enum !== void 0 ? _json$enum : json.const !== void 0 ? [json.const] : void 0;
+		if (!numericType && !(values === null || values === void 0 ? void 0 : values.some((v) => typeof v === "number"))) return json;
+		const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format, id } = json, rest = _objectWithoutProperties(json, _excluded);
+		if (rest.enum) rest.enum = rest.enum.map((v) => typeof v === "number" ? String(v) : v);
+		else if (typeof rest.const === "number") rest.const = String(rest.const);
+		if (!numericType) return rest;
+		rest.type = "string";
+		if (!values) rest.pattern = (types.includes("number") ? number$1 : integer).source;
+		return rest;
+	}
+	/** Every record of one conversion, so the carriers are found in a single pass rather than once per record. */
+	var pendingRecords = /* @__PURE__ */ new WeakMap();
+	function rewriteKeyNames(ctx) {
+		var _pendingRecords$get;
+		const bySchema = /* @__PURE__ */ new Map();
+		for (const entry of ctx.seen.values()) if (entry.def && !bySchema.has(entry.schema)) bySchema.set(entry.schema, entry);
+		const rewrites = /* @__PURE__ */ new Map();
+		for (const record of (_pendingRecords$get = pendingRecords.get(ctx)) !== null && _pendingRecords$get !== void 0 ? _pendingRecords$get : []) {
+			var _ref, _seen$def;
+			const seen = ctx.seen.get(record);
+			const names = (_ref = (_seen$def = seen === null || seen === void 0 ? void 0 : seen.def) !== null && _seen$def !== void 0 ? _seen$def : seen === null || seen === void 0 ? void 0 : seen.schema) === null || _ref === void 0 ? void 0 : _ref.propertyNames;
+			if (!names || names === true || rewrites.has(names)) continue;
+			const rewritten = stringifyKeyNames(bySchema, names, /* @__PURE__ */ new Set());
+			if (rewritten !== names) rewrites.set(names, rewritten);
+		}
+		if (!rewrites.size) return;
+		for (const entry of ctx.seen.values()) for (const carrier of [entry.schema, entry.def]) {
+			const rewritten = carrier && rewrites.get(carrier.propertyNames);
+			if (rewritten) carrier.propertyNames = rewritten;
+		}
+	}
+	var recordProcessor = (schema, ctx, _json, params) => {
+		const json = _json;
+		const def = schema._zod.def;
+		json.type = "object";
+		const keyType = def.keyType;
+		const patterns = aggregateChecks(keyType).patterns;
+		if (def.mode === "loose" && patterns && patterns.size > 0) {
+			const valueSchema = processSchema(def.valueType, ctx, _objectSpread2(_objectSpread2({}, params), {}, { path: [
+				...params.path,
+				"patternProperties",
+				"*"
+			] }));
+			json.patternProperties = {};
+			for (const pattern of patterns) assignProp(json.patternProperties, exactPattern(pattern).source, valueSchema);
+		} else {
+			if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
+				json.propertyNames = processSchema(def.keyType, ctx, _objectSpread2(_objectSpread2({}, params), {}, { path: [...params.path, "propertyNames"] }));
+				let pending = pendingRecords.get(ctx);
+				if (!pending) {
+					pending = [];
+					pendingRecords.set(ctx, pending);
+					ctx.deferred.push(() => rewriteKeyNames(ctx));
+				}
+				pending.push(schema);
+			}
+			json.additionalProperties = processSchema(def.valueType, ctx, _objectSpread2(_objectSpread2({}, params), {}, { path: [...params.path, "additionalProperties"] }));
+		}
+		const keyValues = keyType._zod.values;
+		const omittableOnInput = ctx.io === "input" && inputOptin(def.valueType) !== void 0;
+		if (keyValues && !def.partial && !omittableOnInput) {
+			const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
+			if (validKeyValues.length > 0) json.required = validKeyValues.map(String);
+		}
 	};
 	var nullableProcessor = (schema, ctx, json, params) => {
 		const def = schema._zod.def;
@@ -5164,6 +5447,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	function int(params) {
 		return /* @__PURE__ */ _int(ZodNumberFormat, params);
 	}
+	var ZodBoolean = /*@__PURE__*/ $constructor("ZodBoolean", (inst, def) => {
+		$ZodBoolean.init(inst, def);
+		ZodType.init(inst, def);
+		inst._zod.processJSONSchema = (ctx, json, params) => booleanProcessor(inst, ctx, json, params);
+	});
+	function boolean(params) {
+		return /* @__PURE__ */ _boolean(ZodBoolean, params);
+	}
 	var ZodUnknown = /*@__PURE__*/ $constructor("ZodUnknown", (inst, def) => {
 		$ZodUnknown.init(inst, def);
 		ZodType.init(inst, def);
@@ -5323,6 +5614,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			items,
 			rest: hasRest ? _paramsOrRest : null
 		}, normalizeParams(hasRest ? _params : _paramsOrRest)));
+	}
+	var ZodRecord = /*@__PURE__*/ $constructor("ZodRecord", (inst, def) => {
+		_ensureDefaultMemoizer();
+		$ZodRecord.init(inst, def);
+		ZodType.init(inst, def);
+		inst._zod.processJSONSchema = (ctx, json, params) => recordProcessor(inst, ctx, json, params);
+		inst.keyType = def.keyType;
+		inst.valueType = def.valueType;
+	});
+	function record(keyType, valueType, params) {
+		if (!valueType || !valueType._zod) return new ZodRecord(_objectSpread2({
+			type: "record",
+			keyType: string(),
+			valueType: keyType
+		}, normalizeParams(valueType)));
+		return new ZodRecord(_objectSpread2({
+			type: "record",
+			keyType,
+			valueType
+		}, normalizeParams(params)));
 	}
 	var ZodEnum = /*@__PURE__*/ $constructor("ZodEnum", (inst, def) => {
 		$ZodEnum.init(inst, def);
@@ -5548,41 +5859,197 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	var px = number().finite().min(-1e5).max(1e5);
 	var tokenKey = string().regex(/^[a-z]+\.[A-Za-z]+$/).max(60);
 	var id = string().min(1).max(200);
+	var unit = number().min(0).max(1);
+	/** Couleur simple (texte, contour, ombre) : liée à une variable si token. */
 	var paintSchema = object({
 		hex: string().regex(/^#[0-9A-Fa-f]{6}$/),
-		opacity: number().min(0).max(1),
+		opacity: unit,
 		variable: tokenKey.optional()
+	}).strict();
+	var stopSchema = paintSchema.extend({ position: unit });
+	/** Fond empilé : couleur, dégradé ou image (comme la liste Fill de Figma). */
+	var fillSchema = discriminatedUnion("type", [
+		paintSchema.extend({
+			type: literal("SOLID"),
+			visible: boolean()
+		}),
+		object({
+			type: literal("GRADIENT_LINEAR"),
+			/** Angle CSS (0 = vers le haut, 90 = vers la droite). */
+			angle: finite,
+			stops: array(stopSchema).min(2).max(8),
+			opacity: unit,
+			visible: boolean()
+		}).strict(),
+		object({
+			type: literal("GRADIENT_RADIAL"),
+			stops: array(stopSchema).min(2).max(8),
+			opacity: unit,
+			visible: boolean()
+		}).strict(),
+		object({
+			type: literal("IMAGE"),
+			asset: string().regex(/^[a-f0-9]{16,64}\.(png|jpe?g|webp)$/),
+			scaleMode: _enum([
+				"FILL",
+				"FIT",
+				"TILE"
+			]),
+			opacity: unit,
+			visible: boolean()
+		}).strict()
+	]);
+	var strokeSchema = object({
+		paint: paintSchema,
+		/** Épaisseur uniforme ou par côté (haut, droite, bas, gauche). */
+		weight: union([number().min(0).max(100), tuple([
+			finite,
+			finite,
+			finite,
+			finite
+		])]),
+		align: _enum([
+			"INSIDE",
+			"CENTER",
+			"OUTSIDE"
+		]),
+		dash: array(number().min(0).max(1e3)).max(4),
+		visible: boolean()
+	}).strict();
+	var effectSchema = discriminatedUnion("type", [object({
+		type: _enum(["DROP_SHADOW", "INNER_SHADOW"]),
+		x: finite,
+		y: finite,
+		blur: number().min(0).max(1e3),
+		spread: finite,
+		color: paintSchema,
+		visible: boolean()
+	}).strict(), object({
+		type: _enum(["LAYER_BLUR", "BACKGROUND_BLUR"]),
+		radius: number().min(0).max(1e3),
+		visible: boolean()
+	}).strict()]);
+	var lineHeightSchema = discriminatedUnion("unit", [
+		object({ unit: literal("AUTO") }).strict(),
+		object({
+			unit: literal("PIXELS"),
+			value: number().min(0).max(2e3)
+		}).strict(),
+		object({
+			unit: literal("PERCENT"),
+			value: number().min(0).max(1e3)
+		}).strict()
+	]);
+	var sceneTextSchema = object({
+		characters: string().max(1e4),
+		fontFamily: string().max(100),
+		fontFamilyVariable: tokenKey.optional(),
+		fontWeight: number().int().min(100).max(1e3),
+		fontSize: number().min(1).max(1e3),
+		fontSizeVariable: tokenKey.optional(),
+		lineHeight: lineHeightSchema,
+		letterSpacing: number().min(-100).max(100),
+		align: _enum([
+			"LEFT",
+			"CENTER",
+			"RIGHT",
+			"JUSTIFIED"
+		]),
+		valign: _enum([
+			"TOP",
+			"CENTER",
+			"BOTTOM"
+		]),
+		textCase: _enum([
+			"ORIGINAL",
+			"UPPER",
+			"LOWER",
+			"TITLE"
+		]),
+		decoration: _enum([
+			"NONE",
+			"UNDERLINE",
+			"STRIKETHROUGH"
+		]),
+		autoResize: _enum([
+			"WIDTH_AND_HEIGHT",
+			"HEIGHT",
+			"NONE",
+			"TRUNCATE"
+		]),
+		maxLines: number().int().min(1).max(50).nullable(),
+		color: paintSchema,
+		/** Style de texte Figma à appliquer (id DS-Studio du style). */
+		style: id.optional()
 	}).strict();
 	var sizing = _enum([
 		"FIXED",
 		"HUG",
 		"FILL"
 	]);
-	var shadowSchema = object({
-		x: finite,
-		y: finite,
-		blur: number().min(0).max(1e3),
-		spread: finite,
-		color: paintSchema
-	}).strict();
-	var sceneTextSchema = object({
-		characters: string().max(1e4),
-		fontFamily: string().max(100),
-		fontWeight: number().int().min(100).max(1e3),
-		fontSize: number().min(1).max(1e3),
-		fontSizeVariable: tokenKey.optional(),
-		lineHeight: number().min(0).max(2e3),
-		letterSpacing: number().min(-100).max(100),
-		align: _enum([
-			"LEFT",
-			"CENTER",
-			"RIGHT"
+	var constraint = _enum([
+		"MIN",
+		"MAX",
+		"CENTER",
+		"STRETCH"
+	]);
+	var blend = _enum([
+		"NORMAL",
+		"MULTIPLY",
+		"SCREEN",
+		"OVERLAY",
+		"DARKEN",
+		"LIGHTEN",
+		"COLOR_DODGE",
+		"COLOR_BURN",
+		"HARD_LIGHT",
+		"SOFT_LIGHT",
+		"DIFFERENCE",
+		"EXCLUSION",
+		"HUE",
+		"SATURATION",
+		"COLOR",
+		"LUMINOSITY"
+	]);
+	var layoutSchema = object({
+		direction: _enum(["HORIZONTAL", "VERTICAL"]),
+		wrap: boolean(),
+		gap: number().min(0).max(1e4),
+		gapVariable: tokenKey.optional(),
+		/** Écart entre lignes (retour à la ligne). */
+		counterGap: number().min(0).max(1e4).optional(),
+		counterGapVariable: tokenKey.optional(),
+		padding: tuple([
+			finite,
+			finite,
+			finite,
+			finite
 		]),
-		color: paintSchema,
-		/** Style de texte Figma à appliquer (id DS-Studio du style). */
-		style: id.optional()
+		paddingVariables: array(tokenKey.nullable()).max(4),
+		primary: _enum([
+			"MIN",
+			"CENTER",
+			"MAX",
+			"SPACE_BETWEEN"
+		]),
+		counter: _enum([
+			"MIN",
+			"CENTER",
+			"MAX",
+			"BASELINE"
+		]),
+		/** Le premier enfant passe devant (« Canvas stacking » de Figma). */
+		reverseZ: boolean()
 	}).strict();
+	var propValue = union([string().max(200), boolean()]);
 	var sceneNodeSchema = lazy(() => object({
+		key: string().max(400).optional(),
+		kind: _enum([
+			"FRAME",
+			"RECTANGLE",
+			"TEXT",
+			"VECTOR"
+		]).optional(),
 		name: string().max(200),
 		x: px,
 		y: px,
@@ -5590,8 +6057,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		h: px,
 		sizingH: sizing,
 		sizingV: sizing,
-		fill: paintSchema.optional(),
-		stroke: paintSchema.extend({ weight: number().min(0).max(100) }).optional(),
+		minW: px.optional(),
+		maxW: px.optional(),
+		minH: px.optional(),
+		maxH: px.optional(),
+		visible: boolean().optional(),
+		locked: boolean().optional(),
+		opacity: unit.optional(),
+		blendMode: blend.optional(),
+		clip: boolean().optional(),
+		rotation: number().min(-360).max(360).optional(),
+		absolute: object({
+			h: constraint,
+			v: constraint
+		}).strict().optional(),
+		fills: array(fillSchema).max(8).optional(),
+		strokes: array(strokeSchema).max(4).optional(),
+		effects: array(effectSchema).max(8).optional(),
+		effectStyle: id.optional(),
 		radius: tuple([
 			finite,
 			finite,
@@ -5599,32 +6082,18 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			finite
 		]).optional(),
 		radiusVariables: array(tokenKey.nullable()).max(4).optional(),
-		shadow: shadowSchema.extend({ style: id.optional() }).optional(),
-		layout: object({
-			direction: _enum(["HORIZONTAL", "VERTICAL"]),
-			gap: number().min(0).max(1e4),
-			gapVariable: tokenKey.optional(),
-			padding: tuple([
-				finite,
-				finite,
-				finite,
-				finite
-			]),
-			paddingVariables: array(tokenKey.nullable()).max(4),
-			primary: _enum([
-				"MIN",
-				"CENTER",
-				"MAX",
-				"SPACE_BETWEEN"
-			]),
-			counter: _enum([
-				"MIN",
-				"CENTER",
-				"MAX"
-			])
-		}).strict().optional(),
+		cornerSmoothing: unit.optional(),
+		layout: layoutSchema.optional(),
 		text: sceneTextSchema.optional(),
+		svg: string().max(2e5).optional(),
 		instanceOf: id.optional(),
+		overridden: boolean().optional(),
+		propValues: record(string().max(60), propValue).optional(),
+		refs: object({
+			characters: string().max(60),
+			visible: string().max(60),
+			mainComponent: string().max(60)
+		}).partial().strict().optional(),
 		children: array(sceneNodeSchema).max(1e3)
 	}).strict());
 	var variableSchema = object({
@@ -5652,14 +6121,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		fontWeight: number().int().min(100).max(1e3),
 		fontSize: number().min(1).max(1e3),
 		fontSizeVariable: tokenKey.optional(),
-		lineHeight: number().min(0).max(2e3),
+		lineHeight: lineHeightSchema,
 		letterSpacing: number().min(-100).max(100),
 		sample: string().max(200)
 	}).strict();
 	var effectStyleSchema = object({
 		id,
 		name: string().max(200),
-		shadow: shadowSchema
+		effects: array(effectSchema).min(1).max(8)
+	}).strict();
+	var componentPropertySchema = object({
+		name: string().max(60),
+		type: _enum([
+			"TEXT",
+			"BOOLEAN",
+			"INSTANCE_SWAP"
+		]),
+		/** Échange d'instance : id DS-Studio du composant par défaut. */
+		default: propValue
 	}).strict();
 	var componentDefSchema = object({
 		id,
@@ -5667,7 +6146,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		/** Component set (ex. « Button ») et variante au format Figma « Prop=Val, … ». */
 		set: string().max(200).nullable(),
 		variant: string().max(400).nullable(),
+		/** Propriétés de composant (portées par le set s'il existe). */
+		properties: array(componentPropertySchema).max(50),
 		root: sceneNodeSchema
+	}).strict();
+	/** Images de fond utilisées (base64), envoyées une fois par export. */
+	var imageSchema = object({
+		asset: string().regex(/^[a-f0-9]{16,64}\.(png|jpe?g|webp)$/),
+		data: string().max(3e6)
 	}).strict();
 	var pageTargetSchema = discriminatedUnion("mode", [
 		object({ mode: literal("current") }).strict(),
@@ -5681,12 +6167,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}).strict()
 	]);
 	var base = {
-		version: literal(1),
+		version: literal(2),
 		page: pageTargetSchema,
 		variables: array(variableSchema).max(500),
 		textStyles: array(textStyleSchema).max(200),
 		effectStyles: array(effectStyleSchema).max(100),
-		components: array(componentDefSchema).max(300)
+		components: array(componentDefSchema).max(300),
+		images: array(imageSchema).max(40)
 	};
 	var exportPayloadSchema = discriminatedUnion("kind", [object(_objectSpread2({ kind: literal("design_system") }, base)).strict(), object(_objectSpread2(_objectSpread2({ kind: literal("preview") }, base), {}, { screen: object({
 		id,
@@ -5728,7 +6215,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	var fileKey = () => typeof figma.fileKey === "string" ? figma.fileKey : null;
 	post({ hello: {
 		fileKey: fileKey(),
-		fileName: String(figma.root.name)
+		fileName: String(figma.root.name),
+		exportVersion: 2
 	} });
 	function fills(node) {
 		if (!("fills" in node) || !Array.isArray(node.fills)) return null;
@@ -5872,7 +6360,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		const parts = transfers.get(transfer);
 		transfers.delete(transfer);
 		if (!parts || parts.some((p) => p === null)) throw new Error("Export incomplet : des lots manquent.");
-		const payload = exportPayloadSchema.parse(JSON.parse(parts.join("")));
+		const raw = JSON.parse(parts.join(""));
+		if ((raw === null || raw === void 0 ? void 0 : raw.version) !== 2) throw new Error(`Format d’export v${raw === null || raw === void 0 ? void 0 : raw.version} reçu, ce plugin attend v2. Relancez le plugin DS-Studio Bridge dans Figma et rechargez DS-Studio.`);
+		const payload = exportPayloadSchema.parse(raw);
 		if (payload.kind !== kind) throw new Error("Type d’export inattendu.");
 		return payload;
 	}
@@ -5905,6 +6395,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		typographySTRING: ["FONT_FAMILY"]
 	};
 	var fontCache = /* @__PURE__ */ new Map();
+	var CORNERS = [
+		"topLeftRadius",
+		"topRightRadius",
+		"bottomRightRadius",
+		"bottomLeftRadius"
+	];
+	var lineHeight = (l) => l.unit === "AUTO" ? { unit: "AUTO" } : {
+		value: l.value,
+		unit: l.unit
+	};
 	var PAGES_KEY = "dsStudioPages";
 	var Exporter = class {
 		constructor(id, payload) {
@@ -5924,6 +6424,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			_defineProperty(this, "effectStyles", /* @__PURE__ */ new Map());
 			_defineProperty(this, "components", /* @__PURE__ */ new Map());
 			_defineProperty(this, "touched", []);
+			_defineProperty(this, "images", /* @__PURE__ */ new Map());
+			_defineProperty(this, "bindings", []);
+			_defineProperty(this, "pendingProps", []);
 			_defineProperty(this, "duplicates", /* @__PURE__ */ new Map());
 			this.id = id;
 			this.payload = payload;
@@ -6014,6 +6517,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				await this.indexPages();
 				await this.variables();
 				await this.styles();
+				this.loadImages();
 				await this.componentDefs(this.payload.kind === "design_system");
 				if (this.payload.kind === "design_system") await this.boards();
 				else await this.screen(this.payload.screen);
@@ -6145,10 +6649,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const font = await this.font(t.fontFamily, t.fontWeight);
 				style.fontName = font;
 				style.fontSize = t.fontSize;
-				style.lineHeight = {
-					value: t.lineHeight,
-					unit: "PIXELS"
-				};
+				style.lineHeight = lineHeight(t.lineHeight);
 				style.letterSpacing = {
 					value: t.letterSpacing,
 					unit: "PIXELS"
@@ -6166,58 +6667,187 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const isNew = !style;
 				if (!style) style = figma.createEffectStyle();
 				style.name = e.name;
-				const s = e.shadow;
-				style.effects = [{
-					type: "DROP_SHADOW",
-					color: _objectSpread2(_objectSpread2({}, toRgb(s.color.hex)), {}, { a: s.color.opacity }),
-					offset: {
-						x: s.x,
-						y: s.y
-					},
-					radius: s.blur,
-					spread: s.spread,
-					visible: true,
-					blendMode: "NORMAL"
-				}];
+				style.effects = e.effects.map((x) => this.effect(x));
 				this.mark(style, e.id, isNew);
 				this.effectStyles.set(e.id, style);
 			}
 		}
+		loadImages() {
+			for (const img of this.payload.images) try {
+				const image = figma.createImage(figma.base64Decode(img.data));
+				this.images.set(img.asset, image.hash);
+			} catch (_unused7) {
+				this.warnings.add(`Image ${img.asset} illisible par Figma.`);
+			}
+		}
+		fill(f) {
+			if (f.type === "SOLID") {
+				const paint = {
+					type: "SOLID",
+					color: toRgb(f.hex),
+					opacity: f.opacity,
+					visible: f.visible
+				};
+				const v = f.variable && this.vars.get(f.variable);
+				return v ? figma.variables.setBoundVariableForPaint(paint, "color", v) : paint;
+			}
+			if (f.type === "IMAGE") {
+				const imageHash = this.images.get(f.asset);
+				if (!imageHash) {
+					this.warnings.add(`Image ${f.asset} absente de l’export : fond ignoré.`);
+					return null;
+				}
+				return {
+					type: "IMAGE",
+					imageHash,
+					scaleMode: f.scaleMode,
+					opacity: f.opacity,
+					visible: f.visible
+				};
+			}
+			const gradientStops = f.stops.map((s) => ({
+				position: s.position,
+				color: _objectSpread2(_objectSpread2({}, toRgb(s.hex)), {}, { a: s.opacity })
+			}));
+			const t = f.type === "GRADIENT_LINEAR" ? (f.angle - 90) * Math.PI / 180 : 0;
+			const c = Math.cos(t);
+			const s = Math.sin(t);
+			return {
+				type: f.type,
+				gradientStops,
+				gradientTransform: [[
+					c,
+					s,
+					.5 - .5 * c - .5 * s
+				], [
+					-s,
+					c,
+					.5 + .5 * s - .5 * c
+				]],
+				opacity: f.opacity,
+				visible: f.visible
+			};
+		}
+		effect(e) {
+			if ("radius" in e) return {
+				type: e.type,
+				radius: e.radius,
+				visible: e.visible
+			};
+			const effect = {
+				type: e.type,
+				color: _objectSpread2(_objectSpread2({}, toRgb(e.color.hex)), {}, { a: e.color.opacity }),
+				offset: {
+					x: e.x,
+					y: e.y
+				},
+				radius: e.blur,
+				spread: e.spread,
+				visible: e.visible,
+				blendMode: "NORMAL"
+			};
+			const v = e.color.variable && this.vars.get(e.color.variable);
+			if (v && figma.variables.setBoundVariableForEffect) try {
+				return figma.variables.setBoundVariableForEffect(effect, "color", v);
+			} catch (_unused8) {}
+			return effect;
+		}
+		async decorate(target, node) {
+			var _node$fills, _node$strokes, _node$effects;
+			if (target.type !== "TEXT") target.fills = ((_node$fills = node.fills) !== null && _node$fills !== void 0 ? _node$fills : []).map((f) => this.fill(f)).filter(Boolean);
+			const s = (_node$strokes = node.strokes) === null || _node$strokes === void 0 ? void 0 : _node$strokes[0];
+			if (s) {
+				target.strokes = [_objectSpread2(_objectSpread2({}, this.paint(s.paint)), {}, { visible: s.visible })];
+				if (typeof s.weight === "number") target.strokeWeight = s.weight;
+				else [
+					"strokeTopWeight",
+					"strokeRightWeight",
+					"strokeBottomWeight",
+					"strokeLeftWeight"
+				].forEach((side, i) => target[side] = s.weight[i]);
+				target.strokeAlign = s.align;
+				target.dashPattern = s.dash;
+			} else if ("strokes" in target) target.strokes = [];
+			if (target.type !== "TEXT") {
+				var _node$cornerSmoothing;
+				CORNERS.forEach((corner, i) => {
+					var _node$radius$i, _node$radius, _node$radiusVariables;
+					target[corner] = (_node$radius$i = (_node$radius = node.radius) === null || _node$radius === void 0 ? void 0 : _node$radius[i]) !== null && _node$radius$i !== void 0 ? _node$radius$i : 0;
+					this.bind(target, corner, (_node$radiusVariables = node.radiusVariables) === null || _node$radiusVariables === void 0 ? void 0 : _node$radiusVariables[i]);
+				});
+				target.cornerSmoothing = (_node$cornerSmoothing = node.cornerSmoothing) !== null && _node$cornerSmoothing !== void 0 ? _node$cornerSmoothing : 0;
+			}
+			const style = node.effectStyle && this.effectStyles.get(node.effectStyle);
+			if (style) await target.setEffectStyleIdAsync(style.id);
+			else target.effects = ((_node$effects = node.effects) !== null && _node$effects !== void 0 ? _node$effects : []).map((e) => this.effect(e));
+		}
+		layer(target, node) {
+			var _node$opacity, _node$blendMode;
+			target.visible = node.visible !== false;
+			target.locked = !!node.locked;
+			target.opacity = (_node$opacity = node.opacity) !== null && _node$opacity !== void 0 ? _node$opacity : 1;
+			target.blendMode = (_node$blendMode = node.blendMode) !== null && _node$blendMode !== void 0 ? _node$blendMode : target.type === "FRAME" || target.type === "COMPONENT" ? "PASS_THROUGH" : "NORMAL";
+		}
+		place(c, child, parentLayout) {
+			if (parentLayout && child.absolute) {
+				try {
+					c.layoutPositioning = "ABSOLUTE";
+					c.constraints = {
+						horizontal: child.absolute.h,
+						vertical: child.absolute.v
+					};
+				} catch (_unused9) {
+					this.warnings.add(`Position absolue impossible sur ${child.name}.`);
+				}
+				c.x = child.x;
+				c.y = child.y;
+			} else if (parentLayout) this.size(c, child);
+			else {
+				c.x = child.x;
+				c.y = child.y;
+			}
+			for (const [field, value] of [
+				["minWidth", child.minW],
+				["maxWidth", child.maxW],
+				["minHeight", child.minH],
+				["maxHeight", child.maxH]
+			]) if (value !== void 0) try {
+				c[field] = value;
+			} catch (_unused10) {}
+			if (child.rotation) c.rotation = child.rotation;
+		}
 		async build(node, target) {
-			var _node$shadow;
 			if (!target && node.instanceOf) {
 				const instance = await this.instance(node);
 				if (instance) return instance;
 			}
-			if (!target && node.text && !node.children.length && !node.fill && !node.stroke) return this.text(node);
-			const frame = target !== null && target !== void 0 ? target : figma.createFrame();
+			if (!target && node.text && (node.kind === "TEXT" || !node.kind)) return this.text(node);
+			if (!target && node.kind === "VECTOR" && node.svg) try {
+				const v = figma.createNodeFromSvg(node.svg);
+				v.name = node.name;
+				v.resize(Math.max(1, node.w), Math.max(1, node.h));
+				this.layer(v, node);
+				this.refer(v, node);
+				return v;
+			} catch (_unused11) {
+				this.warnings.add(`Vecteur ${node.name} non importé : cadre vide.`);
+			}
+			const frame = target !== null && target !== void 0 ? target : node.kind === "RECTANGLE" && !node.children.length ? figma.createRectangle() : figma.createFrame();
 			if (target) for (const c of frame.children.slice()) c.remove();
 			frame.name = node.name;
-			frame.clipsContent = false;
-			frame.fills = node.fill ? [this.paint(node.fill)] : [];
-			if (node.stroke) {
-				frame.strokes = [this.paint(node.stroke)];
-				frame.strokeWeight = node.stroke.weight;
-				frame.strokeAlign = "INSIDE";
-			} else frame.strokes = [];
-			[
-				"topLeftRadius",
-				"topRightRadius",
-				"bottomRightRadius",
-				"bottomLeftRadius"
-			].forEach((corner, i) => {
-				var _node$radius$i, _node$radius, _node$radiusVariables;
-				frame[corner] = (_node$radius$i = (_node$radius = node.radius) === null || _node$radius === void 0 ? void 0 : _node$radius[i]) !== null && _node$radius$i !== void 0 ? _node$radius$i : 0;
-				this.bind(frame, corner, (_node$radiusVariables = node.radiusVariables) === null || _node$radiusVariables === void 0 ? void 0 : _node$radiusVariables[i]);
-			});
-			const effect = ((_node$shadow = node.shadow) === null || _node$shadow === void 0 ? void 0 : _node$shadow.style) && this.effectStyles.get(node.shadow.style);
-			if (effect) await frame.setEffectStyleIdAsync(effect.id);
-			else frame.effects = [];
+			if ("clipsContent" in frame) frame.clipsContent = !!node.clip;
+			await this.decorate(frame, node);
+			this.layer(frame, node);
 			const l = node.layout;
-			if (l) {
+			if (l && frame.type !== "RECTANGLE") {
 				frame.layoutMode = l.direction;
+				frame.layoutWrap = l.wrap ? "WRAP" : "NO_WRAP";
 				frame.itemSpacing = l.primary === "SPACE_BETWEEN" ? 0 : l.gap;
 				if (l.primary !== "SPACE_BETWEEN") this.bind(frame, "itemSpacing", l.gapVariable);
+				if (l.wrap && l.counterGap !== void 0) {
+					frame.counterAxisSpacing = l.counterGap;
+					this.bind(frame, "counterAxisSpacing", l.counterGapVariable);
+				}
 				[
 					"paddingTop",
 					"paddingRight",
@@ -6229,21 +6859,19 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				});
 				frame.primaryAxisAlignItems = l.primary;
 				frame.counterAxisAlignItems = l.counter;
-			} else frame.layoutMode = "NONE";
+				frame.itemReverseZIndex = l.reverseZ;
+			} else if (frame.type !== "RECTANGLE") frame.layoutMode = "NONE";
 			frame.resize(Math.max(1, node.w), Math.max(1, node.h));
 			for (const child of node.children) {
 				const c = await this.build(child);
 				frame.appendChild(c);
-				if (l) this.size(c, child);
-				else {
-					c.x = child.x;
-					c.y = child.y;
-				}
+				this.place(c, child, !!l);
 			}
 			if (l) try {
 				frame.layoutSizingHorizontal = node.sizingH === "HUG" ? "HUG" : "FIXED";
 				frame.layoutSizingVertical = node.sizingV === "HUG" ? "HUG" : "FIXED";
-			} catch (_unused7) {}
+			} catch (_unused12) {}
+			this.refer(frame, node);
 			return frame;
 		}
 		size(c, node) {
@@ -6252,9 +6880,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			try {
 				c.layoutSizingHorizontal = pick(node.sizingH);
 				c.layoutSizingVertical = pick(node.sizingV);
-			} catch (_unused8) {
+			} catch (_unused13) {
 				this.warnings.add(`Dimensionnement auto layout impossible sur ${node.name}.`);
 			}
+		}
+		refer(target, node) {
+			if (node.refs && Object.keys(node.refs).length) this.bindings.push({
+				target,
+				refs: node.refs
+			});
 		}
 		async text(node) {
 			const t = node.text;
@@ -6263,24 +6897,33 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			text.characters = t.characters;
 			text.name = node.name || t.characters.slice(0, 40);
 			text.fontSize = t.fontSize;
-			text.lineHeight = {
-				value: t.lineHeight,
-				unit: "PIXELS"
-			};
+			text.lineHeight = lineHeight(t.lineHeight);
 			text.letterSpacing = {
 				value: t.letterSpacing,
 				unit: "PIXELS"
 			};
 			text.textAlignHorizontal = t.align;
+			text.textAlignVertical = t.valign;
+			text.textCase = t.textCase;
+			text.textDecoration = t.decoration;
 			const style = t.style && this.textStyles.get(t.style);
 			if (style) await text.setTextStyleIdAsync(style.id);
-			else this.bind(text, "fontSize", t.fontSizeVariable);
+			else {
+				this.bind(text, "fontSize", t.fontSizeVariable);
+				if (text.fontName.family === t.fontFamily) this.bind(text, "fontFamily", t.fontFamilyVariable);
+			}
 			text.fills = [this.paint(t.color)];
-			if (node.sizingH === "HUG") text.textAutoResize = "WIDTH_AND_HEIGHT";
+			if (t.autoResize === "WIDTH_AND_HEIGHT") text.textAutoResize = "WIDTH_AND_HEIGHT";
 			else {
 				text.resize(Math.max(1, node.w), Math.max(1, node.h));
-				text.textAutoResize = "HEIGHT";
+				text.textAutoResize = t.autoResize === "HEIGHT" ? "HEIGHT" : "NONE";
 			}
+			if (t.autoResize === "TRUNCATE") {
+				text.textTruncation = "ENDING";
+				if (t.maxLines) text.maxLines = t.maxLines;
+			}
+			this.layer(text, node);
+			this.refer(text, node);
 			return text;
 		}
 		async instance(node) {
@@ -6289,22 +6932,123 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			if (!comp) return null;
 			const instance = comp.createInstance();
 			instance.name = node.name;
-			const want = [];
-			(function collect(n) {
-				if (n.text) want.push(n.text.characters);
-				n.children.forEach(collect);
-			})(node);
-			const have = instance.findAll((n) => n.type === "TEXT");
-			if (have.length === want.length) for (let i = 0; i < have.length; i++) {
-				if (have[i].characters === want[i] || have[i].fontName === figma.mixed) continue;
-				await figma.loadFontAsync(have[i].fontName);
-				have[i].characters = want[i];
-			}
+			await this.overrides(instance, node, true);
+			if (node.propValues) this.pendingProps.push({
+				instance,
+				values: node.propValues
+			});
+			this.refer(instance, node);
 			return instance;
+		}
+		async overrides(target, node, root = false) {
+			var _target$children;
+			if (node.overridden) {
+				var _node$opacity2;
+				if (target.type === "TEXT" && node.text) {
+					if (target.fontName !== figma.mixed) await figma.loadFontAsync(target.fontName);
+					if (target.characters !== node.text.characters) target.characters = node.text.characters;
+					target.fills = [this.paint(node.text.color)];
+					if (target.fontSize !== node.text.fontSize) {
+						target.fontSize = node.text.fontSize;
+						this.bind(target, "fontSize", node.text.fontSizeVariable);
+					}
+				} else await this.decorate(target, node);
+				if (!root) target.visible = node.visible !== false;
+				target.opacity = (_node$opacity2 = node.opacity) !== null && _node$opacity2 !== void 0 ? _node$opacity2 : 1;
+				const l = node.layout;
+				if (l && target.layoutMode && target.layoutMode !== "NONE") [
+					"paddingTop",
+					"paddingRight",
+					"paddingBottom",
+					"paddingLeft"
+				].forEach((side, i) => {
+					target[side] = l.padding[i];
+					this.bind(target, side, l.paddingVariables[i]);
+				});
+			}
+			const kids = (_target$children = target.children) !== null && _target$children !== void 0 ? _target$children : [];
+			if (kids.length !== node.children.length) {
+				if (node.children.length) this.warnings.add(`Instance ${node.name} : structure différente du composant, overrides internes ignorés.`);
+				return;
+			}
+			for (let i = 0; i < kids.length; i++) {
+				const child = node.children[i];
+				if (child.instanceOf && child.propValues && kids[i].type === "INSTANCE") this.pendingProps.push({
+					instance: kids[i],
+					values: child.propValues
+				});
+				await this.overrides(kids[i], child);
+			}
 		}
 		found(key, type) {
 			const n = this.index.get(key);
 			return n && n.type === type && !n.removed ? n : null;
+		}
+		properties(def, comp, bindings) {
+			var _comp$parent;
+			const holder = ((_comp$parent = comp.parent) === null || _comp$parent === void 0 ? void 0 : _comp$parent.type) === "COMPONENT_SET" ? comp.parent : comp;
+			const keyOf = (name) => {
+				var _holder$componentProp;
+				return Object.keys((_holder$componentProp = holder.componentPropertyDefinitions) !== null && _holder$componentProp !== void 0 ? _holder$componentProp : {}).find((k) => k.split("#")[0] === name);
+			};
+			for (const p of def.properties) {
+				if (keyOf(p.name)) continue;
+				let value = p.default;
+				if (p.type === "INSTANCE_SWAP") {
+					var _this$components$get2;
+					const c = (_this$components$get2 = this.components.get(String(value))) !== null && _this$components$get2 !== void 0 ? _this$components$get2 : this.found(String(value), "COMPONENT");
+					if (!c) {
+						this.warnings.add(`Propriété « ${p.name} » : composant par défaut introuvable.`);
+						continue;
+					}
+					value = c.id;
+				}
+				try {
+					holder.addComponentProperty(p.name, p.type, value);
+				} catch (_unused14) {
+					this.warnings.add(`Propriété « ${p.name} » non créée sur ${def.name}.`);
+				}
+			}
+			const FIELD = {
+				characters: "characters",
+				visible: "visible",
+				mainComponent: "mainComponent"
+			};
+			for (const b of bindings) {
+				const refs = {};
+				for (const [field, name] of Object.entries(b.refs)) {
+					const key = name && keyOf(name);
+					if (key) refs[FIELD[field]] = key;
+				}
+				if (!Object.keys(refs).length) continue;
+				try {
+					b.target.componentPropertyReferences = _objectSpread2(_objectSpread2({}, b.target.componentPropertyReferences), refs);
+				} catch (_unused15) {
+					this.warnings.add(`Liaison de propriété impossible sur ${b.target.name}.`);
+				}
+			}
+		}
+		applyProps() {
+			for (const { instance, values } of this.pendingProps.splice(0)) {
+				var _instance$componentPr;
+				const defs = (_instance$componentPr = instance.componentProperties) !== null && _instance$componentPr !== void 0 ? _instance$componentPr : {};
+				const out = {};
+				for (const [name, v] of Object.entries(values)) {
+					const key = Object.keys(defs).find((k) => k.split("#")[0] === name);
+					if (!key) continue;
+					if (defs[key].type === "INSTANCE_SWAP") {
+						var _this$components$get3;
+						const c = (_this$components$get3 = this.components.get(String(v))) !== null && _this$components$get3 !== void 0 ? _this$components$get3 : this.found(String(v), "COMPONENT");
+						if (c) out[key] = c.id;
+					} else out[key] = v;
+				}
+				if (!Object.keys(out).length) continue;
+				try {
+					instance.setProperties(out);
+				} catch (_unused16) {
+					this.warnings.add(`Propriétés non appliquées sur ${instance.name}.`);
+				}
+			}
 		}
 		async componentDefs(update) {
 			const defs = this.payload.components;
@@ -6325,6 +7069,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			};
 			defs.forEach((d) => visit(d));
 			const sets = /* @__PURE__ */ new Map();
+			const built = [];
 			for (const def of order) {
 				var _def$variant, _def$variant2, _sets$get;
 				await this.tick(`Composant ${(_def$variant = def.variant) !== null && _def$variant !== void 0 ? _def$variant : def.name}`);
@@ -6338,7 +7083,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					comp = figma.createComponent();
 					this.page.appendChild(comp);
 				}
+				const before = this.bindings.length;
 				await this.build(_objectSpread2(_objectSpread2({}, def.root), {}, { instanceOf: void 0 }), comp);
+				built.push({
+					def,
+					comp,
+					bindings: this.bindings.splice(before)
+				});
 				comp.name = (_def$variant2 = def.variant) !== null && _def$variant2 !== void 0 ? _def$variant2 : def.name;
 				this.mark(comp, def.id, isNew);
 				this.components.set(def.id, comp);
@@ -6359,6 +7110,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				set.counterAxisSizingMode = "AUTO";
 				this.mark(set, "set/" + name, isNew);
 			}
+			for (const b of built) this.properties(b.def, b.comp, b.bindings);
+			this.applyProps();
 		}
 		async board(key, title) {
 			let board = this.found(key, "FRAME");
@@ -6491,10 +7244,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			await this.tick("Planche Composants");
 			content = await this.board("board/components", "Composants");
 			for (const def of this.payload.components) {
-				var _comp$parent;
+				var _comp$parent2;
 				const comp = this.components.get(def.id);
 				if (!comp) continue;
-				const top = ((_comp$parent = comp.parent) === null || _comp$parent === void 0 ? void 0 : _comp$parent.type) === "COMPONENT_SET" ? comp.parent : comp;
+				const top = ((_comp$parent2 = comp.parent) === null || _comp$parent2 === void 0 ? void 0 : _comp$parent2.type) === "COMPONENT_SET" ? comp.parent : comp;
 				if (top.parent === this.page) content.appendChild(top);
 			}
 		}
@@ -6510,6 +7263,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				frame.y = 0;
 			}
 			await this.build(_objectSpread2(_objectSpread2({}, screen.root), {}, { instanceOf: void 0 }), frame);
+			this.bindings = [];
+			this.applyProps();
 			frame.name = screen.name;
 			frame.clipsContent = true;
 			this.mark(frame, screen.id, isNew);

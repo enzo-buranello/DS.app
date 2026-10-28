@@ -283,6 +283,25 @@ test(
         );
       });
       await t.test(
+        'serveur lancé avant une mise à jour du code : relancé au démarrage',
+        async () => {
+          const before = await request('status');
+          assert.equal(before.serverStale, false);
+          // Code serveur modifié après son démarrage (mise à jour, git pull…).
+          const later = new Date(Date.now() + 60_000);
+          await fs.utimes(path.join(root, 'scripts/runtime.mjs'), later, later);
+          await until(
+            async () => (await request('status')).serverStale,
+            'serveur périmé détecté',
+            10000,
+          );
+          const after = await action('start');
+          assert.equal(after.phase, 'actif', JSON.stringify(after));
+          assert.notEqual(after.pid, before.pid);
+          assert.equal(after.serverStale, false);
+        },
+      );
+      await t.test(
         'installation refusée sur serveur actif, erreur visible et données inchangées',
         async () => {
           const original = await fs.readFile(

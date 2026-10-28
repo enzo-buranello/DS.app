@@ -1,4 +1,20 @@
 import { test, expect } from '@playwright/test';
+import { seedDoc } from '../../app/shared/seedDoc.js';
+
+// Les paquets de détail de l'inspecteur sont repliés par défaut ; les parcours
+// ci-dessous les manipulent tous, on les ouvre (même mécanisme que l'utilisateur).
+// Le test « paquets repliés par défaut » vérifie l'état initial sans ce réglage.
+test.beforeEach(async ({ page }, info) => {
+  if (info.title.startsWith('inspecteur : paquets')) return;
+  await page.addInitScript(() => {
+    const titles = ['Position', 'Apparence', 'Fond', 'Contour', 'Effets'];
+    const all = [...titles, 'Interaction', 'Avancé', 'Typographie'];
+    localStorage.setItem(
+      'ds-studio-inspector-sections',
+      JSON.stringify(Object.fromEntries(all.map((t) => [t, true]))),
+    );
+  });
+});
 
 test('boucle centrale réelle : diff, validation, propagation, recharge, annulation sélective', async ({
   page,
@@ -27,10 +43,12 @@ test('boucle centrale réelle : diff, validation, propagation, recharge, annulat
   await expect(dialog).toContainText('#3154C4');
   await expect(dialog).toContainText('#8A3B20');
   await expect(mainButton).toHaveCSS('background-color', 'rgb(49, 84, 196)');
-  await dialog.getByRole('button', { name: 'Ne pas appliquer' }).click();
+  await dialog.getByRole('button', { name: 'Rejeter' }).click();
   await expect(mainButton).toHaveCSS('background-color', 'rgb(49, 84, 196)');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Valider et enregistrer' }).click();
+  await dialog
+    .getByRole('button', { name: 'Enregistrer', exact: true })
+    .click();
   await expect(mainButton).toHaveCSS('background-color', 'rgb(138, 59, 32)');
   await expect(
     catalogue.getByRole('button', { name: 'Réserver une place', exact: true }),
@@ -50,13 +68,17 @@ test('boucle centrale réelle : diff, validation, propagation, recharge, annulat
     .selectOption('space.md');
   await page.getByLabel('Valeur du token').fill('22');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Valider et enregistrer' }).click();
+  await dialog
+    .getByRole('button', { name: 'Enregistrer', exact: true })
+    .click();
   await page.getByRole('button', { name: /^Historique/ }).click();
   await page
     .getByRole('dialog', { name: 'Historique' })
     .getByRole('button', { name: 'Annuler la révision 1', exact: true })
     .click();
-  await dialog.getByRole('button', { name: 'Valider et enregistrer' }).click();
+  await dialog
+    .getByRole('button', { name: 'Enregistrer', exact: true })
+    .click();
   await expect(mainButton).toHaveCSS('background-color', 'rgb(49, 84, 196)');
   await expect(mainButton).toHaveCSS('padding-left', '22px');
   await previewToggle.click();
@@ -100,16 +122,29 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
         .locator('body')
         .evaluate((el) => el.scrollWidth <= window.innerWidth),
     ).toBe(true);
+    // Grille en auto-layout avec retour à la ligne : colonnes = cartes
+    // alignées sur la même ligne.
     const columns = await frame
       .locator('.scenario-grid')
       .evaluate(
-        (el) => getComputedStyle(el).gridTemplateColumns.split(' ').length,
+        (el) =>
+          [...el.children].filter(
+            (c) =>
+              c.getBoundingClientRect().top ===
+              el.children[0].getBoundingClientRect().top,
+          ).length,
       );
     expect(columns).toBe(width >= 700 ? 2 : 1);
   }
   await page
     .getByRole('combobox', { name: 'Largeur d’écran', exact: true })
     .selectOption('1');
+  // Interactions natives : prototype en mode Test (P).
+  await page.keyboard.press('p');
+  await expect(page.getByRole('button', { name: /^Test/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await frame
     .getByRole('button', { name: 'Réserver une place', exact: true })
     .click();
@@ -146,9 +181,7 @@ test('entrée couleur invalide sans mutation et clavier du diff', async ({
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByLabel('Valeur du token').fill('#123456');
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
-  await expect(
-    page.getByRole('button', { name: 'Ne pas appliquer' }),
-  ).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Rejeter' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).not.toBeVisible();
 });
@@ -176,7 +209,7 @@ test('V2 : brief privé persistant, indépendant du mode IA', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByText('Mon PFE · brief privé', { exact: true }).click();
+  await page.getByText('Mon PFE', { exact: true }).click();
   await page
     .getByLabel('Nom du PFE', { exact: true })
     .fill('Mon atelier accessible');
@@ -189,7 +222,7 @@ test('V2 : brief privé persistant, indépendant du mode IA', async ({
   await page.getByRole('button', { name: 'Enregistrer le brief' }).click();
   await expect(page.getByText('Brief enregistré sur ce poste.')).toBeVisible();
   await page.reload();
-  await page.getByText('Mon PFE · brief privé', { exact: true }).click();
+  await page.getByText('Mon PFE', { exact: true }).click();
   await expect(page.getByLabel('Nom du PFE', { exact: true })).toHaveValue(
     'Mon atelier accessible',
   );
@@ -211,9 +244,7 @@ test('V2 : recherche, brouillon récupéré après recharge et abandon sans écr
     .getByRole('combobox', { name: 'Token', exact: true })
     .selectOption('space.lg');
   await page.getByLabel('Valeur du token').fill('31');
-  await expect(
-    page.getByText('Brouillon non enregistré.', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText('Brouillon', { exact: true })).toBeVisible();
   await page.reload();
   await expect(
     page.getByRole('combobox', { name: 'Token', exact: true }),
@@ -248,14 +279,14 @@ test('V2 : conflit multi-onglets visible dans le diff, aucune perte de données'
     .selectOption('color.brand');
   await other.getByLabel('Valeur du token').fill('#664422');
   await other.getByRole('button', { name: 'Proposer', exact: true }).click();
-  await other.getByRole('button', { name: 'Valider et enregistrer' }).click();
+  await other.getByRole('button', { name: 'Enregistrer', exact: true }).click();
   await expect(other.getByRole('dialog')).not.toBeVisible();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('alert')).toContainText('Une autre validation');
   await expect(
-    dialog.getByRole('button', { name: 'Valider et enregistrer' }),
+    dialog.getByRole('button', { name: 'Enregistrer', exact: true }),
   ).toBeDisabled();
-  await dialog.getByRole('button', { name: 'Ne pas appliquer' }).click();
+  await dialog.getByRole('button', { name: 'Rejeter' }).click();
   expect(
     (await (await page.request.get('/api/state')).json()).tokens['color.brand']
       .$value,
@@ -461,7 +492,7 @@ test('layout v3 : toggle et panneau au clavier', async ({ page }) => {
   await expect(page.getByLabel('Rechercher un token')).toBeVisible();
 });
 
-test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et mode manuel', async ({
+test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, écriture directe, arrêt et mode manuel', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -476,7 +507,7 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et m
   await page.goto('/');
   const boot = await (await page.request.get('/api/bootstrap')).json();
   const state = await (await page.request.get('/api/state')).json();
-  // Proposition réelle, renvoyée par un agent simulé : aucun appel IA.
+  // Écriture réelle, renvoyée par un agent simulé : aucun appel IA.
   const proposal = await (
     await page.request.post('/api/proposals', {
       headers: { 'x-ds-studio': boot.csrf },
@@ -491,11 +522,17 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et m
     const body = route.request().postDataJSON();
     sent.push(body.message);
     expect(body.agent).toBe('claude');
+    const next = await (
+      await page.request.post('/api/commit', {
+        headers: { 'x-ds-studio': boot.csrf },
+        data: { id: proposal.id },
+      })
+    ).json();
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         message: 'Voici une marque plus profonde.',
-        proposal,
+        applied: { type: 'token', patches: proposal.patches, state: next },
       }),
     });
   });
@@ -514,9 +551,19 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et m
   await input.fill('Rends la marque plus profonde');
   await input.press('Enter');
   expect(sent).toEqual(['Rends la marque plus profonde']);
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('#225588');
-  await dialog.getByRole('button', { name: 'Ne pas appliquer' }).click();
+  // Appliqué directement, sans diff, puis annulable par Cmd+Z.
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.getByText('Modification appliquée.')).toBeVisible();
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get('/api/state')).json()).tokens[
+          'color.brand'
+        ].$value,
+    )
+    .toBe(state.tokens['color.brand'].$value);
   const bubble = page.getByRole('region', { name: 'Réponse de Claude' });
   await expect(bubble).toContainText('Voici une marque plus profonde.');
   await bubble.getByRole('button', { name: /Claude/ }).click();
@@ -544,130 +591,143 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, diff, arrêt et m
   await expect(
     page.getByRole('heading', { name: 'Tokens', exact: true }),
   ).toBeFocused();
+  // Écriture puis annulation : deux révisions, valeur d'origine.
   expect((await (await page.request.get('/api/state')).json()).revision).toBe(
-    state.revision,
+    state.revision + 2,
   );
 });
 
-test('créer un composant : chaque réglage en direct, lien aux tokens, persistance', async ({
+test('créer un composant : inspecteur complet en direct, tokens, états, persistance', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   await page.getByRole('button', { name: 'Nouveau composant' }).click();
-  const slot = page.getByRole('button', { name: /^Sélectionner Bouton/ });
-  await expect(slot).toHaveAttribute('aria-pressed', 'true');
-  const comp = page.locator('.ds-custom').first();
-  const css = (prop: string) =>
-    comp.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+  const panel = page.getByRole('region', { name: /Bouton 1/ });
+  await expect(panel).toContainText('Composant maître');
+  const comp = page.locator('.stage-catalogue .ds-custom').first();
   const combo = (name: string) =>
     page.getByRole('combobox', { name, exact: true });
-  const num = (name: string) =>
-    page.getByRole('spinbutton', { name, exact: true });
-
-  await page.getByLabel('Nom', { exact: true }).fill('Bouton test');
-  await page.getByLabel('Texte', { exact: true }).fill('Valider');
-  await expect(comp).toContainText('Valider');
-
-  // Couleurs : token, valeur libre + opacité, stroke.
-  const brand: string = (await (await page.request.get('/api/state')).json())
-    .tokens['color.brand'].$value;
+  const field = (name: string) => page.getByLabel(name, { exact: true });
   const rgb = (hex: string) =>
     `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+
+  // Calque : renommer.
+  await field('Nom du calque').fill('Bouton test');
+  await expect(page.getByRole('region', { name: /Bouton test/ })).toBeVisible();
+
+  // Fond : token, valeur libre + opacité, plusieurs fonds empilés.
+  const brand: string = (await (await page.request.get('/api/state')).json())
+    .tokens['color.brand'].$value;
   await expect(comp).toHaveCSS('background-color', rgb(brand));
-  await combo('Fill').selectOption('hex');
-  await page.getByLabel('Fill : hex').fill('#112233');
-  await num('Fill : opacité (%)').fill('50');
+  await combo('Fond 1').selectOption('hex');
+  await field('Fond 1 : hex').fill('#112233');
+  await field('Fond 1 : opacité').fill('50');
   await expect(comp).toHaveCSS(
     'background-color',
     /rgba?\(17, 34, 51, 0\.5\)|color\(srgb/,
   );
-  await combo('Fill').selectOption('color.brand');
-  await num('Fill : opacité (%)').fill('100');
-  await combo('Stroke').selectOption('color.danger');
-  await combo('Texte (couleur)').selectOption('color.surface');
-  await expect(comp).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await combo('Fond 1').selectOption('color.brand');
+  await field('Fond 1 : opacité').fill('100');
+  await page.getByRole('button', { name: 'Ajouter un fond' }).click();
+  await expect(comp).toHaveCSS('background-image', /linear-gradient/);
+  await page.getByRole('button', { name: 'Fond 1 : masquer' }).click();
+  await expect(comp).toHaveCSS('background-color', rgb(brand));
+  await page.getByRole('button', { name: 'Fond 1 : supprimer' }).click();
+  await expect(combo('Fond 1')).toHaveValue('color.brand');
 
-  // Bordure.
-  await num('Épaisseur (px)').fill('3');
-  await combo('Style').selectOption('dashed');
+  // Contour.
+  await page.getByRole('button', { name: 'Ajouter un contour' }).click();
+  await combo('Contour').selectOption('color.danger');
+  await field('Épaisseur').fill('3');
+  await combo('Style du contour').selectOption('dashed');
   await expect(comp).toHaveCSS('border-top-width', '3px');
   await expect(comp).toHaveCSS('border-top-style', 'dashed');
   await expect(comp).toHaveCSS('border-top-color', 'rgb(180, 35, 62)');
 
-  // Radius global puis par coin.
-  await combo('Rayon global').selectOption('px');
-  await num('Rayon global : valeur (px)').fill('12');
+  // Rayons : global puis par coin.
+  await combo('Rayon').selectOption('px');
+  await field('Rayon : valeur').fill('12');
   await expect(comp).toHaveCSS('border-top-left-radius', '12px');
-  await page.getByText('Rayon par coin').click();
+  await page.getByLabel('Rayon par coin').click();
   await combo('Rayon bas droit').selectOption('px');
-  await num('Rayon bas droit : valeur (px)').fill('0');
+  await field('Rayon bas droit : valeur').fill('0');
   await expect(comp).toHaveCSS('border-bottom-right-radius', '0px');
   await expect(comp).toHaveCSS('border-top-left-radius', '12px');
 
-  // Auto layout.
+  // Auto-layout : direction, espacement, marges par côté, alignement 9 positions.
   await combo('Direction').selectOption('vertical');
   await expect(comp).toHaveCSS('flex-direction', 'column');
-  await combo('Gap').selectOption('space.lg');
+  await combo('Espacement').selectOption('space.lg');
   await expect(comp).toHaveCSS('row-gap', '24px');
-  await combo('Padding global').selectOption('space.lg');
-  await page.getByText('Padding par côté').click();
-  await combo('Padding gauche').selectOption('px');
-  await num('Padding gauche : valeur (px)').fill('40');
+  // Marges différentes selon les côtés : l'inspecteur s'ouvre « par côté ».
+  await expect(page.getByLabel('Marges par côté')).toBeChecked();
+  await page.getByLabel('Marges par côté').click();
+  await combo('Marge intérieure').selectOption('space.lg');
+  await page.getByLabel('Marges par côté').click();
+  await combo('Marge gauche').selectOption('px');
+  await field('Marge gauche : valeur').fill('40');
   await expect(comp).toHaveCSS('padding-top', '24px');
   await expect(comp).toHaveCSS('padding-left', '40px');
-  await combo('Alignement').selectOption('end');
-  await combo('Distribution').selectOption('space-between');
+  await page.getByRole('button', { name: 'Aligner bas droite' }).click();
   await expect(comp).toHaveCSS('align-items', 'flex-end');
+  await expect(comp).toHaveCSS('justify-content', 'flex-end');
+  await combo('Espacement').selectOption('auto');
   await expect(comp).toHaveCSS('justify-content', 'space-between');
-  await combo('Largeur').selectOption('fill');
-  // Fill : le composant occupe toute la largeur intérieure de son emplacement.
-  await expect
-    .poll(() =>
-      comp.evaluate((el) => {
-        const slot = el.parentElement!;
-        const pad =
-          parseFloat(getComputedStyle(slot).paddingLeft) +
-          parseFloat(getComputedStyle(slot).paddingRight);
-        return Math.round(
-          (el as HTMLElement).offsetWidth - (slot.clientWidth - pad),
-        );
-      }),
-    )
-    .toBe(0);
-  await combo('Hauteur').selectOption('fixed');
-  await num('Hauteur fixe (px)').fill('140');
-  await expect(comp).toHaveCSS('height', '140px');
 
-  // Typographie.
-  await combo('Famille').selectOption('Georgia');
-  await combo('Taille').selectOption('font.heading');
+  // Dimensions : expression, flèches (Maj = ×10), min et max.
+  await combo('Largeur').selectOption('fixed');
+  await field('Largeur fixe').fill('16*15');
+  await field('Largeur fixe').press('Enter');
+  await expect(comp).toHaveCSS('width', '240px');
+  await combo('Hauteur').selectOption('fixed');
+  await field('Hauteur fixe').fill('130');
+  await field('Hauteur fixe').press('Shift+ArrowUp');
+  await expect(comp).toHaveCSS('height', '140px');
+  await field('Largeur min').fill('200');
+  await field('Largeur max').fill('320');
+  await field('Hauteur min').fill('60');
+  await field('Hauteur max').fill('400');
+  await expect(comp).toHaveCSS('min-width', '200px');
+  await expect(comp).toHaveCSS('max-height', '400px');
+
+  // Typographie (héritée par le libellé).
+  await combo('Police').selectOption('Georgia');
+  await combo('Taille du texte').selectOption('font.heading');
   await combo('Graisse').selectOption('800');
-  await num('Interligne').fill('1.2');
+  await combo('Interlignage').selectOption('ratio');
+  await field('Interlignage : valeur').fill('1.2');
   await expect(comp).toHaveCSS('font-family', 'Georgia');
   await expect(comp).toHaveCSS('font-size', '28px');
   await expect(comp).toHaveCSS('font-weight', '800');
   await expect(comp).toHaveCSS('line-height', /33\.6px/);
 
-  // Effets.
-  await page.getByLabel('Ombre portée').check();
-  await num('Ombre y').fill('6');
-  await expect(comp).toHaveCSS('box-shadow', /6px 12px 0px/);
-  await num('Flou du calque (px)').fill('1');
+  // Effets empilés.
+  await page.getByRole('button', { name: 'Ajouter un effet' }).click();
+  await field('Effet 1 : y').fill('6');
+  await expect(comp).toHaveCSS('box-shadow', /0px 6px 12px/);
+  await page.getByRole('button', { name: 'Ajouter un effet' }).click();
+  await combo('Effet 2 : type').selectOption('layer-blur');
+  await field('Effet 2 : rayon').fill('1');
   await expect(comp).toHaveCSS('filter', 'blur(1px)');
-  await num('Flou du calque (px)').fill('0');
+  await page.getByRole('button', { name: 'Effet 2 : supprimer' }).click();
 
-  // Dimensions.
-  await num('Largeur min (px)').fill('200');
-  await num('Largeur max (px)').fill('320');
-  await num('Hauteur min (px)').fill('60');
-  await num('Hauteur max (px)').fill('400');
-  await expect(comp).toHaveCSS('min-width', '200px');
-  await expect(comp).toHaveCSS('max-width', '320px');
-  await expect(comp).toHaveCSS('min-height', '60px');
-  await expect(comp).toHaveCSS('max-height', '400px');
+  // Calque : opacité.
+  await field('Opacité').fill('50');
+  await expect(comp).toHaveCSS('opacity', '0.5');
+  await field('Opacité').fill('100');
 
-  // Le fill reste lié au token : une validation de color.brand le met à jour.
+  // État « Survol » : réglage à part, montré sur le canevas.
+  await combo('État').selectOption('hover');
+  await expect(comp).toHaveAttribute('data-ds-preview', 'hover');
+  await combo('Fond 1').selectOption('color.danger');
+  await expect(comp).toHaveCSS('background-color', 'rgb(180, 35, 62)');
+  await combo('État').selectOption('base');
+  await expect(comp).not.toHaveAttribute('data-ds-preview', /.*/);
+  await expect(comp).toHaveCSS('background-color', rgb(brand));
+
+  // Le fond reste lié au token : une validation de color.brand le met à jour.
+  await page.getByRole('button', { name: 'Désélectionner' }).click();
   await page
     .getByRole('combobox', { name: 'Token', exact: true })
     .selectOption('color.brand');
@@ -675,35 +735,44 @@ test('créer un composant : chaque réglage en direct, lien aux tokens, persista
   await page.getByRole('button', { name: 'Proposer', exact: true }).click();
   await page
     .getByRole('dialog')
-    .getByRole('button', { name: 'Valider et enregistrer' })
+    .getByRole('button', { name: 'Enregistrer', exact: true })
     .click();
   await expect(comp).toHaveCSS('background-color', 'rgb(138, 59, 32)');
 
-  // Sauvegarde sur disque, puis repli de section mémorisé après rechargement.
+  // Écrit dans le document (gestes regroupés), relu après rechargement.
+  type Node = {
+    type: string;
+    name: string;
+    props: {
+      size?: { maxHeight?: number };
+      fills?: { color: unknown }[];
+      layout?: { gap?: unknown; padding?: { left: unknown } };
+    };
+    states?: { hover?: { fills?: { color: unknown }[] } };
+  };
+  const mine = async () =>
+    Object.values(
+      (
+        (await (await page.request.get('/api/doc')).json()) as {
+          nodes: Record<string, Node>;
+        }
+      ).nodes,
+    ).find((n) => n.type === 'component' && n.name === 'Bouton test');
   await expect
-    .poll(async () => {
-      const { components } = await (
-        await page.request.get('/api/components')
-      ).json();
-      return components[0]?.size.maxHeight;
-    })
+    .poll(async () => (await mine())?.props.size?.maxHeight)
     .toBe(400);
-  const { components } = await (
-    await page.request.get('/api/components')
-  ).json();
-  expect(components[0]).toMatchObject({
-    name: 'Bouton test',
-    fill: { token: 'color.brand' },
-    layout: { gap: { token: 'space.lg' }, padding: { left: { px: 40 } } },
+  expect(await mine()).toMatchObject({
+    props: {
+      fills: [{ color: { token: 'color.brand' } }],
+      layout: { gap: 'auto', padding: { left: { px: 40 } } },
+    },
+    states: { hover: { fills: [{ color: { token: 'color.danger' } }] } },
   });
-  await page.getByText('Importer une image', { exact: true }).click();
-  await expect(page.locator('#image-import')).toBeHidden();
   await page.reload();
-  await expect(page.locator('#image-import')).toBeHidden();
-  await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
-    'Bouton test',
+  await expect(page.locator('.stage-catalogue .ds-custom').first()).toHaveCSS(
+    'height',
+    '140px',
   );
-  await expect(page.locator('.ds-custom').first()).toHaveCSS('height', '140px');
   await page.screenshot({ path: 'test-results/composant-manuel.png' });
 });
 
@@ -849,23 +918,24 @@ test('importer une image : SVG déposé, capture collée, états d’erreur, ré
     page.getByRole('status').filter({ hasText: 'créé' }),
   ).toContainText('bouton-envoyer');
   await expect(preview).toBeHidden();
-  const created = page
-    .locator('.stage-catalogue')
-    .getByRole('button', { name: 'Sélectionner bouton-envoyer' });
-  await expect(created).toHaveAttribute('aria-pressed', 'true');
-  // Modifiable avec la section 1 : fond lié au token, icône qui suit la couleur du texte.
+  // Le composant rejoint « Mes composants » et s'ouvre dans l'inspecteur.
   await expect(
-    page.getByRole('combobox', { name: 'Fill', exact: true }),
+    page.getByRole('region', { name: /bouton-envoyer/ }),
+  ).toContainText('Composant maître');
+  await expect(
+    page.getByRole('combobox', { name: 'Fond 1', exact: true }),
   ).toHaveValue('color.brand');
   await page
-    .getByRole('combobox', { name: 'Fill', exact: true })
+    .getByRole('combobox', { name: 'Fond 1', exact: true })
     .selectOption('color.danger');
   await page
-    .getByRole('combobox', { name: 'Texte (couleur)', exact: true })
+    .getByRole('combobox', { name: 'Couleur du texte', exact: true })
     .selectOption('color.text');
-  const view = created.locator('.ds-custom');
+  const view = page.locator('.stage-catalogue [data-ds-name="bouton-envoyer"]');
   await expect(view).toHaveCSS('background-color', 'rgb(180, 35, 62)');
   await expect(view.locator('svg path')).toHaveCSS('stroke', 'rgb(25, 36, 61)');
+  // Retour aux réglages (import d'image) : on ferme la sélection.
+  await page.getByRole('button', { name: 'Désélectionner' }).click();
 
   // Capture collée (Cmd+V) : analyse par Claude (CLI simulé), rapprochée des tokens.
   await page.evaluate(
@@ -888,41 +958,59 @@ test('importer une image : SVG déposé, capture collée, états d’erreur, ré
   await preview.getByRole('button', { name: 'Réessayer' }).click();
   await expect(preview.locator('.ds-custom')).toContainText('Valider');
   await preview.getByRole('button', { name: 'Créer' }).click();
-  await expect(page.getByLabel('Nom', { exact: true })).toHaveValue(
+  await expect(page.getByLabel('Nom du calque', { exact: true })).toHaveValue(
     'Bouton capturé',
   );
-  // Sauvegarde différée de la section 1 : on attend qu'elle soit sur disque.
+  // Écrit dans le document : vecteur validé, fond lié au token.
+  type Node = {
+    id: string;
+    type: string;
+    name: string;
+    children: string[];
+    vector?: { nodes: { tag: string }[] };
+    props: {
+      fills?: { color: unknown }[];
+      layout?: { padding?: { left: unknown } };
+    };
+  };
+  const nodes = async () =>
+    (
+      (await (await page.request.get('/api/doc')).json()) as {
+        nodes: Record<string, Node>;
+      }
+    ).nodes;
+  const named = async (name: string) =>
+    Object.values(await nodes()).find(
+      (n) => n.type === 'component' && n.name === name,
+    );
   await expect
-    .poll(async () => {
-      const r = await (await page.request.get('/api/components')).json();
-      return r.components.find(
-        (c: { name: string }) => c.name === 'bouton-envoyer',
-      )?.fill.token;
-    })
-    .toBe('color.danger');
-  const { components } = await (
-    await page.request.get('/api/components')
-  ).json();
-  const svg = components.find(
-    (c: { name: string }) => c.name === 'bouton-envoyer',
-  );
-  const shot = components.find(
-    (c: { name: string }) => c.name === 'Bouton capturé',
-  );
-  expect(svg.vector.nodes[0].tag).toBe('path');
-  expect(svg.fill).toEqual({ token: 'color.danger', opacity: 1 });
-  expect(shot.fill).toEqual({ token: 'color.brand', opacity: 1 });
-  expect(shot.layout.padding.left).toEqual({ token: 'space.md' });
+    .poll(async () => (await named('bouton-envoyer'))?.props.fills?.[0]?.color)
+    .toEqual({ token: 'color.danger', opacity: 1 });
+  const all = await nodes();
+  const svg = (await named('bouton-envoyer'))!;
+  const shot = (await named('Bouton capturé'))!;
+  const vector = svg.children
+    .map((c) => all[c])
+    .find((n) => n.type === 'vector');
+  expect(vector?.vector?.nodes[0].tag).toBe('path');
+  expect(shot.props.fills?.[0]?.color).toEqual({
+    token: 'color.brand',
+    opacity: 1,
+  });
+  expect(shot.props.layout?.padding?.left).toEqual({ token: 'space.md' });
+  const count = Object.values(all).filter((n) => n.type === 'component').length;
 
   // Réponse de Claude hors format : message clair, rien de créé.
+  await page.getByRole('button', { name: 'Désélectionner' }).click();
   await picker.setInputFiles({
     name: 'capture.webp',
     mimeType: 'image/webp',
     buffer: Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'),
   });
   await expect(alert).toContainText('Réponse de Claude invalide');
-  const after = await (await page.request.get('/api/components')).json();
-  expect(after.components).toHaveLength(components.length);
+  expect(
+    Object.values(await nodes()).filter((n) => n.type === 'component'),
+  ).toHaveLength(count);
 });
 
 // Plugin Figma simulé : même protocole que figma-plugin (ui.html + code.js).
@@ -1140,11 +1228,19 @@ test('exporter vers Figma : pont absent, page cible, progression, DS puis aperç
   const primary = ds1.components.find(
     (c: { id: string }) => c.id === 'button/primary',
   );
+  // Format v2 : lu dans le document ; l'état survol devient une variante.
+  expect(ds1.version).toBe(2);
   expect(primary).toMatchObject({
     set: 'Button',
-    variant: 'Variante=Principal, État=Défaut',
+    variant: 'Variante=Principal, État=Défaut, Interaction=Défaut',
+    properties: [{ name: 'Texte', type: 'TEXT' }],
   });
-  expect(primary.root.fill.variable).toBe('color.brand');
+  expect(ids).toContain('button/primary::hover');
+  expect(primary.root.fills[0]).toMatchObject({
+    type: 'SOLID',
+    variable: 'color.brand',
+  });
+  expect(primary.root.children[0].refs).toEqual({ characters: 'Texte' });
   expect(primary.root.layout.direction).toBe('HORIZONTAL');
   expect(primary.root.radiusVariables[0]).toBe('radius.control');
   expect(primary.root.sizingH).toBe('HUG');
@@ -1200,4 +1296,642 @@ test('exporter vers Figma : pont absent, page cible, progression, DS puis aperç
   await menu.getByRole('button', { name: 'Annuler' }).click();
   await expect(menu.getByRole('alert')).toContainText('Export annulé');
   plugin.close();
+});
+
+// Centre d'un élément de l'aperçu en coordonnées de page (iframe mise à l'échelle).
+async function previewPointOnce(
+  page: import('@playwright/test').Page,
+  selector: string,
+) {
+  return page.locator('iframe').evaluate((f: HTMLIFrameElement, sel) => {
+    const el = f.contentDocument!.querySelector(sel)!;
+    const r = el.getBoundingClientRect();
+    const fr = f.getBoundingClientRect();
+    const s = fr.width / f.offsetWidth;
+    return {
+      x: fr.left + (r.left + r.width / 2) * s,
+      y: fr.top + (r.top + r.height / 2) * s,
+    };
+  }, selector);
+}
+// Mesure stable : l'iframe peut encore grandir (et la scène se remettre à
+// l'échelle) juste après le premier rendu.
+async function previewPoint(page: Page, selector: string) {
+  let last = await previewPointOnce(page, selector);
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(100);
+    const next = await previewPointOnce(page, selector);
+    if (next.x === last.x && next.y === last.y) return next;
+    last = next;
+  }
+  return last;
+}
+test('mode Édition : sélection, override d’instance, texte, maître, annulation, mode Test', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  // Token dans la vue DS : écrit directement, propagé au catalogue.
+  // L'overlay capte le pointeur : on clique à la position de l'élément.
+  const box = await page
+    .locator('[data-ds-token="color.success"]')
+    .boundingBox();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + 10);
+  await expect(page.getByTestId('prompt-chip')).toContainText('color.success');
+  await page.getByLabel('Valeur hex du token').fill('#226644');
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get('/api/state')).json()).tokens[
+          'color.success'
+        ].$value,
+    )
+    .toBe('#226644');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('edit-selection')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  const frame = page.frameLocator('iframe');
+  const cta = '[data-ds-inst="cards.rhythm.cta"]';
+  await expect(frame.locator(cta)).toBeVisible();
+  let p = await previewPoint(page, cta);
+  await page.mouse.click(p.x, p.y);
+  const panel = page.getByRole('region', { name: /Button · Secondaire/ });
+  await expect(panel).toContainText('Instance');
+  // Le clic en mode Édition ne déclenche pas la navigation du bouton.
+  await expect(frame.locator('.scenario')).toHaveAttribute(
+    'data-screen',
+    'cards',
+  );
+  await panel
+    .getByRole('combobox', { name: 'Fond 1', exact: true })
+    .selectOption('color.danger');
+  await expect(panel).toContainText('1 override');
+  const bg = (sel: string) =>
+    frame.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
+  await expect.poll(() => bg(cta)).toBe('rgb(180, 35, 62)');
+  const doc = async () =>
+    (await (await page.request.get('/api/doc')).json()) as {
+      nodes: Record<
+        string,
+        {
+          props: { fills?: { color: unknown }[] };
+          overrides?: Record<string, { characters?: string }>;
+          componentProps?: { Texte?: { default: string } };
+        }
+      >;
+    };
+  const fillOf = async (id: string) =>
+    (await doc()).nodes[id].props.fills?.[0]?.color;
+  const danger = { token: 'color.danger', opacity: 1 };
+  await expect.poll(() => fillOf('cards.rhythm.cta')).toEqual(danger);
+  // Le maître n'a pas changé : le bouton secondaire reste blanc.
+  expect(await fillOf('button/secondary')).toEqual({
+    token: 'color.surface',
+    opacity: 1,
+  });
+
+  // Double-clic : édition du texte dans l'overlay.
+  p = await previewPoint(page, cta);
+  await page.mouse.dblclick(p.x, p.y);
+  const text = page.getByLabel(/Texte de Button/);
+  await text.fill('Je m’inscris');
+  await text.press('Enter');
+  await expect(frame.locator(cta)).toHaveText('Je m’inscris');
+
+  // « Appliquer au composant » : style ET texte passent sur le maître.
+  await panel.getByRole('button', { name: 'Appliquer au composant' }).click();
+  await expect.poll(() => fillOf('button/secondary')).toEqual(danger);
+  const after = await doc();
+  expect(after.nodes['button/secondary'].componentProps?.Texte?.default).toBe(
+    'Je m’inscris',
+  );
+  expect(after.nodes['cards.rhythm.cta'].overrides).toBeUndefined();
+  await expect(frame.locator(cta)).toHaveText('Je m’inscris');
+
+  // Annulation geste par geste : maître, texte puis couleur. La pile
+  // survit au rechargement.
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(() => fillOf('button/secondary'))
+    .toEqual({ token: 'color.surface', opacity: 1 });
+  await expect
+    .poll(async () => (await page.request.get('/api/history')).json())
+    .toMatchObject({ undone: [expect.anything()] });
+  await page.reload();
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  await expect(frame.locator(cta)).toBeVisible();
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(
+      async () =>
+        (await doc()).nodes['cards.rhythm.cta'].overrides?.[
+          'button/secondary/label'
+        ]?.characters,
+    )
+    .toBeUndefined();
+  await expect.poll(() => fillOf('cards.rhythm.cta')).toEqual(danger);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => fillOf('cards.rhythm.cta')).toBeUndefined();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get('/api/state')).json()).tokens[
+          'color.success'
+        ].$value,
+    )
+    .not.toBe('#226644');
+  // Le survol du bouton reste actif (états distincts de la base).
+  await page.keyboard.press('p');
+  await frame
+    .locator('[data-ds-inst="cards.booking>booking-card/cta"]')
+    .hover();
+  await expect
+    .poll(() => bg('[data-ds-inst="cards.booking>booking-card/cta"]'))
+    .toBe('rgb(36, 63, 153)');
+  await page.keyboard.press('e');
+
+  // Mode Test : navigation, saisie, puis retour à l'état initial en Édition.
+  await page.keyboard.press('p');
+  await expect(page.getByTestId('edit-overlay')).toHaveCount(0);
+  await frame.getByRole('button', { name: 'Voir les ateliers' }).click();
+  await expect(frame.locator('.scenario')).toHaveAttribute(
+    'data-screen',
+    'form',
+  );
+  await frame.getByLabel('Votre prénom').fill('Camille');
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('e');
+  await expect(page.getByTestId('edit-overlay')).toBeVisible();
+  await expect(frame.locator('.scenario')).toHaveAttribute(
+    'data-screen',
+    'cards',
+  );
+  await expect(frame.getByLabel('Votre prénom')).toHaveCount(0);
+});
+
+test('inspecteur sur une instance : variante, override par propriété, texte interne, lien, image', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  const frame = page.frameLocator('iframe');
+  const combo = (name: string) =>
+    page.getByRole('combobox', { name, exact: true });
+  const bg = (sel: string) =>
+    frame.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
+  const cta = '[data-ds-inst="cards.rhythm.cta"]';
+  await expect(frame.locator(cta)).toBeVisible();
+  let p = await previewPoint(page, cta);
+  await page.mouse.click(p.x, p.y);
+  const panel = page.getByRole('region', { name: /Button · Secondaire/ });
+  await expect(panel).toContainText('Instance');
+
+  // Variante : propriété de l'instance, pas un override.
+  await combo('Variante').selectOption('Danger');
+  await expect.poll(() => bg(cta)).toBe('rgb(180, 35, 62)');
+  await expect(page.getByRole('region', { name: /Button/ })).toContainText(
+    'Identique au composant',
+  );
+  // Override d'une propriété, puis retour à la valeur du composant.
+  await combo('Fond 1').selectOption('color.success');
+  await expect(page.getByRole('region', { name: /Button/ })).toContainText(
+    '1 override',
+  );
+  await page.getByRole('button', { name: 'Réinitialiser Fond' }).click();
+  await expect.poll(() => bg(cta)).toBe('rgb(180, 35, 62)');
+  // Interaction : nouvelle cible de navigation.
+  await combo('Cible de navigation').selectOption('screen.cards');
+  const doc = async () =>
+    (await (await page.request.get('/api/doc')).json()) as {
+      nodes: Record<
+        string,
+        {
+          interactions?: { action: { screen?: string } }[];
+          overrides?: Record<string, { characters?: string }>;
+          props: { fills?: { type: string; asset?: string }[] };
+        }
+      >;
+    };
+  await expect
+    .poll(
+      async () =>
+        (await doc()).nodes['cards.rhythm.cta'].interactions?.[0]?.action
+          .screen,
+    )
+    .toBe('screen.cards');
+
+  // Cmd+clic : calque le plus profond (titre dans l'instance de carte).
+  const title = '[data-ds-node="cards.booking>booking-card/title"]';
+  p = await previewPoint(page, title);
+  await page.keyboard.down('ControlOrMeta');
+  await page.mouse.click(p.x, p.y);
+  await page.keyboard.up('ControlOrMeta');
+  await expect(
+    page.getByRole('region', { name: /Carte réservation · Non › Titre/ }),
+  ).toBeVisible();
+  await page.getByLabel('Contenu du texte').fill('Titre local');
+  await expect(frame.locator(title)).toHaveText('Titre local');
+  await combo('Taille du texte').selectOption('px');
+  await page.getByLabel('Taille du texte : valeur', { exact: true }).fill('30');
+  await expect(frame.locator(title)).toHaveCSS('font-size', '30px');
+  await expect
+    .poll(
+      async () =>
+        (await doc()).nodes['cards.booking'].overrides?.['booking-card/title']
+          ?.characters,
+    )
+    .toBe('Titre local');
+  // Le maître n'est pas touché.
+  await page.getByRole('button', { name: 'Réinitialiser Texte' }).click();
+  await expect(frame.locator(title)).toHaveText('Faire moins, mais mieux.');
+
+  // Fond image sur un calque d'écran : fichier vérifié par le serveur.
+  const card = '[data-ds-node="cards.rhythm"]';
+  const box = await page
+    .locator('iframe')
+    .evaluate((f: HTMLIFrameElement, sel) => {
+      const r = f.contentDocument!.querySelector(sel)!.getBoundingClientRect();
+      const fr = f.getBoundingClientRect();
+      const s = fr.width / f.offsetWidth;
+      return { x: fr.left + (r.left + 6) * s, y: fr.top + (r.top + 6) * s };
+    }, card);
+  await page.keyboard.down('ControlOrMeta');
+  await page.mouse.click(box.x, box.y);
+  await page.keyboard.up('ControlOrMeta');
+  await expect(
+    page.getByRole('region', { name: /Carte rythme/ }),
+  ).toContainText('Calque');
+  await page.getByLabel('Fond 1 : fichier image').setInputFiles({
+    name: 'motif.png',
+    mimeType: 'image/png',
+    buffer: PNG_1PX,
+  });
+  await expect(frame.locator(card)).toHaveCSS(
+    'background-image',
+    /\/api\/assets\/[0-9a-f]{32}\.png/,
+  );
+  await expect
+    .poll(
+      async () => (await doc()).nodes['cards.rhythm'].props.fills?.[0]?.type,
+    )
+    .toBe('image');
+});
+
+test('calques et structure : arbre synchronisé, insertion, raccourcis, composant, écrans', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  const frame = page.frameLocator('iframe');
+  const layers = page.getByRole('complementary', { name: 'Calques' });
+  const row = (key: string) => layers.locator(`[data-key="${key}"]`);
+  type Doc = {
+    screens: string[];
+    nodes: Record<
+      string,
+      {
+        type: string;
+        name: string;
+        parent: string | null;
+        children: string[];
+        componentId?: string;
+      }
+    >;
+  };
+  const doc = async () =>
+    (await (await page.request.get('/api/doc')).json()) as Doc;
+
+  // Sélection du canevas reflétée dans l'arbre.
+  const cta = '[data-ds-inst="cards.rhythm.cta"]';
+  await expect(frame.locator(cta)).toBeVisible();
+  const p = await previewPoint(page, cta);
+  await page.mouse.click(p.x, p.y);
+  await expect(row('cards.rhythm.cta')).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+
+  // Arbre → canevas, puis insertion d'un texte (T) juste après.
+  await row('cards.title').click();
+  await expect(page.getByRole('region', { name: /Titre/ })).toBeVisible();
+  await page.keyboard.press('t');
+  await expect(frame.getByText('Texte', { exact: true })).toHaveCount(1);
+  const main = async () => (await doc()).nodes['cards.main'].children;
+  await expect.poll(async () => (await main()).length).toBe(5);
+  const textId = (await main())[2];
+  await expect(row(textId)).toHaveAttribute('aria-selected', 'true');
+  // Cmd+D : duplique ; Suppr : supprime.
+  await page.keyboard.press('ControlOrMeta+d');
+  await expect(frame.getByText('Texte', { exact: true })).toHaveCount(2);
+  await page.keyboard.press('Delete');
+  await expect(frame.getByText('Texte', { exact: true })).toHaveCount(1);
+  // Renommer (double-clic), masquer, annuler.
+  await row(textId).dblclick();
+  await layers.getByLabel('Renommer Texte').fill('Note');
+  await layers.getByLabel('Renommer Texte').press('Enter');
+  await expect(row(textId)).toContainText('Note');
+  await row(textId).hover();
+  await layers.getByRole('button', { name: 'Masquer Note' }).click();
+  await expect(frame.getByText('Texte', { exact: true })).toBeHidden();
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(frame.getByText('Texte', { exact: true })).toBeVisible();
+
+  // Glisser-déposer : l'introduction passe en tête du contenu.
+  await row('cards.intro').dragTo(row('cards.kicker'), {
+    targetPosition: { x: 40, y: 2 },
+  });
+  await expect.poll(async () => (await main())[0]).toBe('cards.intro');
+
+  // Cmd+Alt+K : la carte devient un composant, une instance prend sa place.
+  await row('cards.rhythm').click();
+  await page.keyboard.press('ControlOrMeta+Alt+KeyK');
+  await expect
+    .poll(async () => {
+      const d = await doc();
+      const id = d.nodes['cards.grid'].children[1];
+      return (
+        d.nodes[id].type === 'instance' &&
+        d.nodes[d.nodes[id].componentId!].parent === 'catalogue.custom'
+      );
+    })
+    .toBe(true);
+  await expect(frame.getByText('Un quartier qui inspire.')).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: /Carte rythme/ }),
+  ).toContainText('Instance');
+  // Nouvelle variante : un component set se forme.
+  await layers.getByRole('button', { name: 'Ajouter une variante' }).click();
+  await expect
+    .poll(async () =>
+      Object.values((await doc()).nodes).some(
+        (n) => n.type === 'component-set' && n.name === 'Carte rythme',
+      ),
+    )
+    .toBe(true);
+
+  // Écrans : créer, y insérer un cadre (F), supprimer.
+  await layers.getByRole('button', { name: 'Nouvel écran' }).click();
+  await expect(frame.locator('.scenario')).toHaveAttribute(
+    'data-screen',
+    'ecran-3',
+  );
+  await expect(
+    page.getByRole('combobox', { name: 'Scénario', exact: true }),
+  ).toHaveValue('ecran-3');
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('f');
+  await expect
+    .poll(async () => (await doc()).nodes['screen.ecran-3'].children.length)
+    .toBe(1);
+  await layers
+    .getByRole('button', { name: 'Supprimer l’écran Écran 3' })
+    .click();
+  await expect
+    .poll(async () => (await doc()).screens)
+    .toEqual(['screen.cards', 'screen.form']);
+  await expect(frame.locator('.scenario')).toHaveAttribute(
+    'data-screen',
+    'cards',
+  );
+});
+test('canevas : multi-sélection « Mixte », rectangle, poignées, déplacement, réordonner, repères', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Les tests partagent le serveur : on repart du document de départ.
+  const current = await (await page.request.get('/api/doc')).json();
+  const seed = seedDoc();
+  const ids = new Set([
+    ...Object.keys(current.nodes),
+    ...Object.keys(seed.nodes),
+  ]);
+  const ops = [...ids]
+    .map((id) => ({
+      id,
+      before: current.nodes[id] ?? null,
+      after: seed.nodes[id] ?? null,
+    }))
+    .filter((op) => JSON.stringify(op.before) !== JSON.stringify(op.after));
+  await page.goto('/');
+  const boot = await (await page.request.get('/api/bootstrap')).json();
+  const reset = await page.request.post('/api/doc/ops', {
+    headers: { 'x-ds-studio': boot.csrf },
+    data: { ops, screens: { before: current.screens, after: seed.screens } },
+  });
+  expect(reset.ok()).toBe(true);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Aperçu', exact: true }).click();
+  const frame = page.frameLocator('iframe');
+  const layers = page.getByRole('complementary', { name: 'Calques' });
+  const row = (key: string) => layers.locator(`[data-key="${key}"]`);
+  type Node = {
+    children: string[];
+    props: {
+      layer?: { opacity?: number };
+      size?: { width?: { mode: string; px?: number } };
+      position?: { mode?: string; x?: number; y?: number };
+    };
+  };
+  const nodes = async () =>
+    (
+      (await (await page.request.get('/api/doc')).json()) as {
+        nodes: Record<string, Node>;
+      }
+    ).nodes;
+  const node = (sel: string) => frame.locator(`[data-ds-node="${sel}"]`);
+  await expect(node('cards.title')).toBeVisible();
+
+  // Maj+clic : deux calques, valeurs communes, écriture sur les deux.
+  await row('cards.title').click();
+  const intro = await previewPoint(page, '[data-ds-node="cards.intro"]');
+  await page.keyboard.down('Shift');
+  await page.mouse.click(intro.x, intro.y);
+  await page.keyboard.up('Shift');
+  const multi = page.getByRole('region', { name: /2 calques/ });
+  await expect(multi).toBeVisible();
+  await expect(page.getByTestId('edit-selection-extra')).toHaveCount(1);
+  await expect(row('cards.intro')).toHaveAttribute('aria-selected', 'true');
+  await expect(multi.getByLabel('Opacité', { exact: true })).toHaveValue('100');
+  // Largeurs différentes ou identiques : la valeur « Mixte » vient du rendu.
+  await multi.getByLabel('Opacité', { exact: true }).fill('50');
+  await expect
+    .poll(async () => {
+      const n = await nodes();
+      return [
+        n['cards.title'].props.layer?.opacity,
+        n['cards.intro'].props.layer?.opacity,
+      ];
+    })
+    .toEqual([0.5, 0.5]);
+  // Valeur mixte : la taille du texte diffère entre titre et introduction.
+  await expect(
+    multi.getByLabel('Taille du texte', { exact: true }),
+  ).toHaveValue('');
+  await expect(
+    multi
+      .getByLabel('Taille du texte', { exact: true })
+      .locator('option:checked'),
+  ).toHaveText('Mixte');
+  // Un seul geste : Cmd+Z annule les deux.
+  await page.locator('.stage-bar').click({ position: { x: 600, y: 10 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(async () => (await nodes())['cards.title'].props.layer?.opacity)
+    .toBe(undefined);
+  await expect(page.getByRole('region', { name: /2 calques/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('edit-selection-extra')).toHaveCount(0);
+
+  // Rectangle de sélection : les deux cartes de la grille.
+  await row('cards.rhythm').click();
+  const booking = await previewPoint(page, '[data-ds-node="cards.booking"]');
+  const rhythm = await previewPoint(page, '[data-ds-node="cards.rhythm"]');
+  await page.mouse.move(booking.x, booking.y);
+  await page.mouse.down();
+  await page.mouse.move(booking.x + 20, booking.y + 10, { steps: 3 });
+  await expect(page.getByTestId('edit-marquee')).toBeVisible();
+  await page.mouse.move(rhythm.x, rhythm.y, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.getByRole('region', { name: /2 calques/ })).toBeVisible();
+  await expect(row('cards.booking')).toHaveAttribute('aria-selected', 'true');
+  await expect(row('cards.rhythm')).toHaveAttribute('aria-selected', 'true');
+
+  // Poignée droite : la carte passe en largeur fixe ; Cmd+Z la rend.
+  await row('cards.rhythm').click();
+  const handle = page.locator('.edit-handle[data-handle="e"]');
+  await expect(handle).toBeVisible();
+  const h = (await handle.boundingBox())!;
+  await page.mouse.move(h.x + 4, h.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(h.x - 30, h.y + 4, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await nodes())['cards.rhythm'].props.size?.width?.mode)
+    .toBe('fixed');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(async () => (await nodes())['cards.rhythm'].props.size?.width?.mode)
+    .toBe('fill');
+
+  // Réordonner dans l'auto-layout : la carte passe avant la réservation.
+  const left = await frame
+    .locator('[data-ds-node="cards.booking"]')
+    .evaluate((el) => el.getBoundingClientRect().left);
+  const r0 = await previewPoint(page, '[data-ds-node="cards.rhythm"]');
+  const b0 = await previewPoint(page, '[data-ds-node="cards.booking"]');
+  await page.mouse.move(r0.x, r0.y);
+  await page.mouse.down();
+  await page.mouse.move(r0.x - 10, r0.y, { steps: 3 });
+  await page.mouse.move(b0.x - (b0.x - left) * 0.9, b0.y, { steps: 8 });
+  await expect(page.getByTestId('edit-insert')).toBeVisible();
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await nodes())['cards.grid'].children)
+    .toEqual(['cards.rhythm', 'cards.booking']);
+
+  // Repères Alt : distance entre le titre et l'introduction.
+  await row('cards.title').click();
+  const i1 = await previewPoint(page, '[data-ds-node="cards.intro"]');
+  await page.mouse.move(i1.x, i1.y);
+  await page.keyboard.down('Alt');
+  await page.mouse.move(i1.x + 2, i1.y);
+  await expect(page.getByTestId('edit-guide').first()).toBeVisible();
+  await page.keyboard.up('Alt');
+  await expect(page.getByTestId('edit-guide')).toHaveCount(0);
+  // Repères d'espacement : survol du contenu (auto-layout vertical).
+  await row('cards.main').click();
+  await page.mouse.move(i1.x, i1.y);
+  await expect(page.getByTestId('edit-band').first()).toBeVisible();
+
+  // Calque absolu : glisser le déplace, les flèches l'ajustent.
+  await row('cards.title').click();
+  await page.keyboard.press('r');
+  await expect
+    .poll(async () => (await nodes())['cards.main'].children.length)
+    .toBe(5);
+  const rect = (await nodes())['cards.main'].children[2];
+  await page.getByLabel('Position absolue (hors auto-layout)').check();
+  await expect
+    .poll(async () => (await nodes())[rect].props.position?.mode)
+    .toBe('absolute');
+  const c = await previewPoint(page, `[data-ds-node="${rect}"]`);
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 30, c.y + 20, { steps: 6 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await nodes())[rect].props.position?.x ?? 0)
+    .toBeGreaterThan(10);
+  const x = (await nodes())[rect].props.position!.x!;
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect
+    .poll(async () => (await nodes())[rect].props.position?.x)
+    .toBe(x + 10);
+});
+
+test('versions : onglet périmé invité à recharger, serveur périmé signalé', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('.stage-body')).toBeVisible();
+  // Rien à signaler sur une version à jour.
+  await expect(page.locator('.version-banner')).toHaveCount(0);
+  // Bundle plus récent publié pendant que l'onglet est ouvert.
+  await page.route('**/api/version', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        client: 'assets/index-plus-recent.js',
+        serverStale: false,
+        exportVersion: 2,
+      }),
+    }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  const banner = page.locator('.version-banner');
+  await expect(banner).toContainText('rechargez la page');
+  await expect(banner.getByRole('button', { name: 'Recharger' })).toBeVisible();
+  // Serveur antérieur à ce contrôle (route absente) : à relancer.
+  await page.unroute('**/api/version');
+  await page.route('**/api/version', (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(banner).toContainText('version antérieure du code');
+  // Recharger (version à jour) : le bandeau disparaît.
+  await page.unroute('**/api/version');
+  await page.reload();
+  await expect(page.locator('.stage-body')).toBeVisible();
+  await expect(page.locator('.version-banner')).toHaveCount(0);
+});
+
+test('inspecteur : paquets essentiels dépliés, détails repliés et retenus', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Nouveau composant' }).click();
+  const section = (t: string) =>
+    page.locator('details.ins-section', {
+      has: page.getByRole('heading', { name: new RegExp(`^${t}`) }),
+    });
+  const summary = (t: string) => section(t).locator('summary');
+  for (const t of ['Composant', 'Mise en page', 'Dimensions'])
+    await expect(section(t)).toHaveAttribute('open', '');
+  for (const t of ['Position', 'Apparence', 'Fond', 'Effets', 'Avancé'])
+    await expect(section(t)).not.toHaveAttribute('open', '');
+  await summary('Fond').click();
+  await expect(
+    page.getByRole('combobox', { name: 'Fond 1', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Nouveau composant' }).click();
+  await expect(section('Fond')).toHaveAttribute('open', '');
 });

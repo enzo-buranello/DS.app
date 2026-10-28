@@ -5,10 +5,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   COLLECTION_NAME,
+  EXPORT_VERSION,
   exportPayloadSchema,
   PLUGIN_DATA_KEY as KEY,
   type ExportPayload,
+  type Effect,
   type ExportResult,
+  type Fill,
+  type LineHeight,
   type Paint,
   type SceneNode as Scene,
 } from '../../app/shared/figmaExport';
@@ -36,7 +40,13 @@ const post = (msg: unknown) => figma.ui.postMessage(msg);
 const fileKey = () =>
   typeof figma.fileKey === 'string' ? figma.fileKey : null;
 // Annonce du fichier : ui.html la renvoie à chaque (re)connexion au pont.
-post({ hello: { fileKey: fileKey(), fileName: String(figma.root.name) } });
+post({
+  hello: {
+    fileKey: fileKey(),
+    fileName: String(figma.root.name),
+    exportVersion: EXPORT_VERSION,
+  },
+});
 
 // ---------- Commandes de base ----------
 function fills(node: any) {
@@ -167,7 +177,13 @@ function payloadOf(transfer: string, kind: ExportPayload['kind']) {
   transfers.delete(transfer);
   if (!parts || parts.some((p) => p === null))
     throw new Error('Export incomplet : des lots manquent.');
-  const payload = exportPayloadSchema.parse(JSON.parse(parts.join('')));
+  const raw = JSON.parse(parts.join(''));
+  // Plugin et app de versions différentes : message clair, rien d'écrit.
+  if (raw?.version !== EXPORT_VERSION)
+    throw new Error(
+      `Format d’export v${raw?.version} reçu, ce plugin attend v${EXPORT_VERSION}. Relancez le plugin DS-Studio Bridge dans Figma et rechargez DS-Studio.`,
+    );
+  const payload = exportPayloadSchema.parse(raw);
   if (payload.kind !== kind) throw new Error('Type d’export inattendu.');
   return payload;
 }
@@ -201,6 +217,14 @@ const SCOPES: Record<string, string[]> = {
   typographySTRING: ['FONT_FAMILY'],
 };
 const fontCache = new Map<string, any>();
+const CORNERS = [
+  'topLeftRadius',
+  'topRightRadius',
+  'bottomRightRadius',
+  'bottomLeftRadius',
+];
+const lineHeight = (l: LineHeight) =>
+  l.unit === 'AUTO' ? { unit: 'AUTO' } : { value: l.value, unit: l.unit };
 const PAGES_KEY = 'dsStudioPages';
 
 class Exporter {
@@ -218,6 +242,12 @@ class Exporter {
   private effectStyles = new Map<string, any>();
   private components = new Map<string, any>();
   private touched: any[] = [];
+  private images = new Map<string, string>();
+  private bindings: { target: any; refs: NonNullable<Scene['refs']> }[] = [];
+  private pendingProps: {
+    instance: any;
+    values: Record<string, string | boolean>;
+  }[] = [];
   private duplicates = new Map<string, any[]>();
   constructor(
     private id: string,
@@ -300,6 +330,7 @@ class Exporter {
       await this.indexPages();
       await this.variables();
       await this.styles();
+      this.loadImages();
       await this.componentDefs(this.payload.kind === 'design_system');
       if (this.payload.kind === 'design_system') await this.boards();
       else await this.screen(this.payload.screen);
@@ -453,7 +484,7 @@ class Exporter {
       this.vars.set(t.token, v);
     }
   }
-  // Styles de texte (liés aux variables de taille) et styles d'ombre.
+  // Styles de texte (liés aux variables de taille et de police) et d'effets.
   private async styles() {
     const texts = await figma.getLocalTextStylesAsync();
     for (const t of this.payload.textStyles) {
@@ -467,7 +498,7 @@ class Exporter {
       const font = await this.font(t.fontFamily, t.fontWeight);
       style.fontName = font;
       style.fontSize = t.fontSize;
-      style.lineHeight = { value: t.lineHeight, unit: 'PIXELS' };
+      style.lineHeight = lineHeight(t.lineHeight);
       style.letterSpacing = { value: t.letterSpacing, unit: 'PIXELS' };
       this.bind(style, 'fontSize', t.fontSizeVariable);
       // La famille n'est liée que si la police du token existe vraiment.
@@ -485,21 +516,169 @@ class Exporter {
       const isNew = !style;
       if (!style) style = figma.createEffectStyle();
       style.name = e.name;
-      const s = e.shadow;
-      style.effects = [
-        {
-          type: 'DROP_SHADOW',
-          color: { ...toRgb(s.color.hex), a: s.color.opacity },
-          offset: { x: s.x, y: s.y },
-          radius: s.blur,
-          spread: s.spread,
-          visible: true,
-          blendMode: 'NORMAL',
-        },
-      ];
+      style.effects = e.effects.map((x) => this.effect(x));
       this.mark(style, e.id, isNew);
       this.effectStyles.set(e.id, style);
     }
+  }
+  // Images de fond : créées une fois, retrouvées par leur empreinte Figma.
+  private loadImages() {
+    for (const img of this.payload.images) {
+      try {
+        const image = figma.createImage(figma.base64Decode(img.data));
+        this.images.set(img.asset, image.hash);
+      } catch {
+        this.warnings.add(`Image ${img.asset} illisible par Figma.`);
+      }
+    }
+  }
+
+  // ---------- Propriétés natives ----------
+  private fill(f: Fill): any {
+    if (f.type === 'SOLID') {
+      const paint = {
+        type: 'SOLID',
+        color: toRgb(f.hex),
+        opacity: f.opacity,
+        visible: f.visible,
+      };
+      const v = f.variable && this.vars.get(f.variable);
+      return v
+        ? figma.variables.setBoundVariableForPaint(paint, 'color', v)
+        : paint;
+    }
+    if (f.type === 'IMAGE') {
+      const imageHash = this.images.get(f.asset);
+      if (!imageHash) {
+        this.warnings.add(
+          `Image ${f.asset} absente de l’export : fond ignoré.`,
+        );
+        return null;
+      }
+      return {
+        type: 'IMAGE',
+        imageHash,
+        scaleMode: f.scaleMode,
+        opacity: f.opacity,
+        visible: f.visible,
+      };
+    }
+    const gradientStops = f.stops.map((s) => ({
+      position: s.position,
+      color: { ...toRgb(s.hex), a: s.opacity },
+    }));
+    // Angle CSS → matrice Figma (rotation autour du centre).
+    const t =
+      f.type === 'GRADIENT_LINEAR' ? ((f.angle - 90) * Math.PI) / 180 : 0;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    return {
+      type: f.type,
+      gradientStops,
+      gradientTransform: [
+        [c, s, 0.5 - 0.5 * c - 0.5 * s],
+        [-s, c, 0.5 + 0.5 * s - 0.5 * c],
+      ],
+      opacity: f.opacity,
+      visible: f.visible,
+    };
+  }
+  private effect(e: Effect): any {
+    if ('radius' in e)
+      return { type: e.type, radius: e.radius, visible: e.visible };
+    const effect = {
+      type: e.type,
+      color: { ...toRgb(e.color.hex), a: e.color.opacity },
+      offset: { x: e.x, y: e.y },
+      radius: e.blur,
+      spread: e.spread,
+      visible: e.visible,
+      blendMode: 'NORMAL',
+    };
+    const v = e.color.variable && this.vars.get(e.color.variable);
+    if (v && figma.variables.setBoundVariableForEffect)
+      try {
+        return figma.variables.setBoundVariableForEffect(effect, 'color', v);
+      } catch {
+        /* Effet gardé sans liaison. */
+      }
+    return effect;
+  }
+  // Fonds, contours, rayons, effets : nœud créé ou instance (override).
+  private async decorate(target: any, node: Scene) {
+    if (target.type !== 'TEXT')
+      target.fills = (node.fills ?? [])
+        .map((f) => this.fill(f))
+        .filter(Boolean);
+    const s = node.strokes?.[0];
+    if (s) {
+      const paint = this.paint(s.paint);
+      target.strokes = [{ ...paint, visible: s.visible }];
+      if (typeof s.weight === 'number') target.strokeWeight = s.weight;
+      else
+        [
+          'strokeTopWeight',
+          'strokeRightWeight',
+          'strokeBottomWeight',
+          'strokeLeftWeight',
+        ].forEach((side, i) => (target[side] = (s.weight as number[])[i]));
+      target.strokeAlign = s.align;
+      target.dashPattern = s.dash;
+    } else if ('strokes' in target) target.strokes = [];
+    if (target.type !== 'TEXT') {
+      CORNERS.forEach((corner, i) => {
+        target[corner] = node.radius?.[i] ?? 0;
+        this.bind(target, corner, node.radiusVariables?.[i]);
+      });
+      target.cornerSmoothing = node.cornerSmoothing ?? 0;
+    }
+    const style = node.effectStyle && this.effectStyles.get(node.effectStyle);
+    if (style) await target.setEffectStyleIdAsync(style.id);
+    else target.effects = (node.effects ?? []).map((e) => this.effect(e));
+  }
+  // Calque : visibilité, verrou, opacité, fusion (sur tout type de nœud).
+  private layer(target: any, node: Scene) {
+    target.visible = node.visible !== false;
+    target.locked = !!node.locked;
+    target.opacity = node.opacity ?? 1;
+    target.blendMode =
+      node.blendMode ??
+      (target.type === 'FRAME' || target.type === 'COMPONENT'
+        ? 'PASS_THROUGH'
+        : 'NORMAL');
+  }
+  // Après insertion dans le parent : position, contraintes, limites, rotation.
+  private place(c: any, child: Scene, parentLayout: boolean) {
+    if (parentLayout && child.absolute) {
+      try {
+        c.layoutPositioning = 'ABSOLUTE';
+        c.constraints = {
+          horizontal: child.absolute.h,
+          vertical: child.absolute.v,
+        };
+      } catch {
+        this.warnings.add(`Position absolue impossible sur ${child.name}.`);
+      }
+      c.x = child.x;
+      c.y = child.y;
+    } else if (parentLayout) this.size(c, child);
+    else {
+      c.x = child.x;
+      c.y = child.y;
+    }
+    for (const [field, value] of [
+      ['minWidth', child.minW],
+      ['maxWidth', child.maxW],
+      ['minHeight', child.minH],
+      ['maxHeight', child.maxH],
+    ] as const)
+      if (value !== undefined)
+        try {
+          c[field] = value;
+        } catch {
+          /* Limite réservée aux calques d'auto layout. */
+        }
+    if (child.rotation) c.rotation = child.rotation;
   }
 
   // Construit un nœud ; « target » : nœud existant mis à jour sur place.
@@ -508,44 +687,41 @@ class Exporter {
       const instance = await this.instance(node);
       if (instance) return instance;
     }
-    if (
-      !target &&
-      node.text &&
-      !node.children.length &&
-      !node.fill &&
-      !node.stroke
-    )
+    if (!target && node.text && (node.kind === 'TEXT' || !node.kind))
       return this.text(node);
-    const frame = target ?? figma.createFrame();
+    if (!target && node.kind === 'VECTOR' && node.svg) {
+      try {
+        const v = figma.createNodeFromSvg(node.svg);
+        v.name = node.name;
+        v.resize(Math.max(1, node.w), Math.max(1, node.h));
+        this.layer(v, node);
+        this.refer(v, node);
+        return v;
+      } catch {
+        this.warnings.add(`Vecteur ${node.name} non importé : cadre vide.`);
+      }
+    }
+    const frame =
+      target ??
+      (node.kind === 'RECTANGLE' && !node.children.length
+        ? figma.createRectangle()
+        : figma.createFrame());
     if (target) for (const c of frame.children.slice()) c.remove();
     frame.name = node.name;
-    frame.clipsContent = false;
-    frame.fills = node.fill ? [this.paint(node.fill)] : [];
-    if (node.stroke) {
-      frame.strokes = [this.paint(node.stroke)];
-      frame.strokeWeight = node.stroke.weight;
-      frame.strokeAlign = 'INSIDE';
-    } else frame.strokes = [];
-    const corners = [
-      'topLeftRadius',
-      'topRightRadius',
-      'bottomRightRadius',
-      'bottomLeftRadius',
-    ];
-    corners.forEach((corner, i) => {
-      frame[corner] = node.radius?.[i] ?? 0;
-      this.bind(frame, corner, node.radiusVariables?.[i]);
-    });
-    const effect =
-      node.shadow?.style && this.effectStyles.get(node.shadow.style);
-    if (effect) await frame.setEffectStyleIdAsync(effect.id);
-    else frame.effects = [];
+    if ('clipsContent' in frame) frame.clipsContent = !!node.clip;
+    await this.decorate(frame, node);
+    this.layer(frame, node);
     const l = node.layout;
-    if (l) {
+    if (l && frame.type !== 'RECTANGLE') {
       frame.layoutMode = l.direction;
+      frame.layoutWrap = l.wrap ? 'WRAP' : 'NO_WRAP';
       frame.itemSpacing = l.primary === 'SPACE_BETWEEN' ? 0 : l.gap;
       if (l.primary !== 'SPACE_BETWEEN')
         this.bind(frame, 'itemSpacing', l.gapVariable);
+      if (l.wrap && l.counterGap !== undefined) {
+        frame.counterAxisSpacing = l.counterGap;
+        this.bind(frame, 'counterAxisSpacing', l.counterGapVariable);
+      }
       ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'].forEach(
         (side, i) => {
           frame[side] = l.padding[i];
@@ -554,16 +730,13 @@ class Exporter {
       );
       frame.primaryAxisAlignItems = l.primary;
       frame.counterAxisAlignItems = l.counter;
-    } else frame.layoutMode = 'NONE';
+      frame.itemReverseZIndex = l.reverseZ;
+    } else if (frame.type !== 'RECTANGLE') frame.layoutMode = 'NONE';
     frame.resize(Math.max(1, node.w), Math.max(1, node.h));
     for (const child of node.children) {
       const c = await this.build(child);
       frame.appendChild(c);
-      if (l) this.size(c, child);
-      else {
-        c.x = child.x;
-        c.y = child.y;
-      }
+      this.place(c, child, !!l);
     }
     // Taille propre de la frame : HUG/FIXED ; FILL est appliqué par le parent.
     if (l) {
@@ -574,6 +747,7 @@ class Exporter {
         /* Taille fixe conservée. */
       }
     }
+    this.refer(frame, node);
     return frame;
   }
   private size(c: any, node: Scene) {
@@ -591,6 +765,11 @@ class Exporter {
       );
     }
   }
+  // Calque lié à une propriété de composant : liaison posée après création.
+  private refer(target: any, node: Scene) {
+    if (node.refs && Object.keys(node.refs).length)
+      this.bindings.push({ target, refs: node.refs });
+  }
   private async text(node: Scene) {
     const t = node.text!;
     const text = figma.createText();
@@ -598,18 +777,32 @@ class Exporter {
     text.characters = t.characters;
     text.name = node.name || t.characters.slice(0, 40);
     text.fontSize = t.fontSize;
-    text.lineHeight = { value: t.lineHeight, unit: 'PIXELS' };
+    text.lineHeight = lineHeight(t.lineHeight);
     text.letterSpacing = { value: t.letterSpacing, unit: 'PIXELS' };
     text.textAlignHorizontal = t.align;
+    text.textAlignVertical = t.valign;
+    text.textCase = t.textCase;
+    text.textDecoration = t.decoration;
     const style = t.style && this.textStyles.get(t.style);
     if (style) await text.setTextStyleIdAsync(style.id);
-    else this.bind(text, 'fontSize', t.fontSizeVariable);
+    else {
+      this.bind(text, 'fontSize', t.fontSizeVariable);
+      if (text.fontName.family === t.fontFamily)
+        this.bind(text, 'fontFamily', t.fontFamilyVariable);
+    }
     text.fills = [this.paint(t.color)];
-    if (node.sizingH === 'HUG') text.textAutoResize = 'WIDTH_AND_HEIGHT';
+    if (t.autoResize === 'WIDTH_AND_HEIGHT')
+      text.textAutoResize = 'WIDTH_AND_HEIGHT';
     else {
       text.resize(Math.max(1, node.w), Math.max(1, node.h));
-      text.textAutoResize = 'HEIGHT';
+      text.textAutoResize = t.autoResize === 'HEIGHT' ? 'HEIGHT' : 'NONE';
     }
+    if (t.autoResize === 'TRUNCATE') {
+      text.textTruncation = 'ENDING';
+      if (t.maxLines) text.maxLines = t.maxLines;
+    }
+    this.layer(text, node);
+    this.refer(text, node);
     return text;
   }
   private async instance(node: Scene) {
@@ -619,25 +812,136 @@ class Exporter {
     if (!comp) return null;
     const instance = comp.createInstance();
     instance.name = node.name;
-    // Textes propres à cet usage (ex. libellé du bouton), dans l'ordre.
-    const want: string[] = [];
-    (function collect(n: Scene) {
-      if (n.text) want.push(n.text.characters);
-      n.children.forEach(collect);
-    })(node);
-    const have = instance.findAll((n: any) => n.type === 'TEXT');
-    if (have.length === want.length)
-      for (let i = 0; i < have.length; i++) {
-        if (have[i].characters === want[i] || have[i].fontName === figma.mixed)
-          continue;
-        await figma.loadFontAsync(have[i].fontName);
-        have[i].characters = want[i];
-      }
+    await this.overrides(instance, node, true);
+    if (node.propValues)
+      this.pendingProps.push({ instance, values: node.propValues });
+    this.refer(instance, node);
     return instance;
+  }
+  // Overrides d'instance : seuls les calques marqués diffèrent du composant.
+  // Les calques de l'instance suivent ceux du composant, dans le même ordre.
+  private async overrides(target: any, node: Scene, root = false) {
+    if (node.overridden) {
+      if (target.type === 'TEXT' && node.text) {
+        if (target.fontName !== figma.mixed)
+          await figma.loadFontAsync(target.fontName);
+        if (target.characters !== node.text.characters)
+          target.characters = node.text.characters;
+        target.fills = [this.paint(node.text.color)];
+        if (target.fontSize !== node.text.fontSize) {
+          target.fontSize = node.text.fontSize;
+          this.bind(target, 'fontSize', node.text.fontSizeVariable);
+        }
+      } else await this.decorate(target, node);
+      if (!root) target.visible = node.visible !== false;
+      target.opacity = node.opacity ?? 1;
+      const l = node.layout;
+      if (l && target.layoutMode && target.layoutMode !== 'NONE')
+        ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'].forEach(
+          (side, i) => {
+            target[side] = l.padding[i];
+            this.bind(target, side, l.paddingVariables[i]);
+          },
+        );
+    }
+    const kids = target.children ?? [];
+    if (kids.length !== node.children.length) {
+      if (node.children.length)
+        this.warnings.add(
+          `Instance ${node.name} : structure différente du composant, overrides internes ignorés.`,
+        );
+      return;
+    }
+    for (let i = 0; i < kids.length; i++) {
+      const child = node.children[i];
+      // Instance imbriquée : ses propres valeurs de propriétés.
+      if (child.instanceOf && child.propValues && kids[i].type === 'INSTANCE')
+        this.pendingProps.push({ instance: kids[i], values: child.propValues });
+      await this.overrides(kids[i], child);
+    }
   }
   private found(key: string, type: string) {
     const n = this.index.get(key);
     return n && n.type === type && !n.removed ? n : null;
+  }
+  // Propriétés de composant (sur le set s'il existe) et calques liés.
+  private properties(
+    def: ExportPayload['components'][number],
+    comp: any,
+    bindings: { target: any; refs: NonNullable<Scene['refs']> }[],
+  ) {
+    const holder = comp.parent?.type === 'COMPONENT_SET' ? comp.parent : comp;
+    const keyOf = (name: string) =>
+      Object.keys(holder.componentPropertyDefinitions ?? {}).find(
+        (k) => k.split('#')[0] === name,
+      );
+    for (const p of def.properties) {
+      if (keyOf(p.name)) continue;
+      let value = p.default;
+      if (p.type === 'INSTANCE_SWAP') {
+        const c =
+          this.components.get(String(value)) ??
+          this.found(String(value), 'COMPONENT');
+        if (!c) {
+          this.warnings.add(
+            `Propriété « ${p.name} » : composant par défaut introuvable.`,
+          );
+          continue;
+        }
+        value = c.id;
+      }
+      try {
+        holder.addComponentProperty(p.name, p.type, value);
+      } catch {
+        this.warnings.add(`Propriété « ${p.name} » non créée sur ${def.name}.`);
+      }
+    }
+    const FIELD = {
+      characters: 'characters',
+      visible: 'visible',
+      mainComponent: 'mainComponent',
+    } as const;
+    for (const b of bindings) {
+      const refs: Record<string, string> = {};
+      for (const [field, name] of Object.entries(b.refs)) {
+        const key = name && keyOf(name);
+        if (key) refs[FIELD[field as keyof typeof FIELD]] = key;
+      }
+      if (!Object.keys(refs).length) continue;
+      try {
+        b.target.componentPropertyReferences = {
+          ...b.target.componentPropertyReferences,
+          ...refs,
+        };
+      } catch {
+        this.warnings.add(
+          `Liaison de propriété impossible sur ${b.target.name}.`,
+        );
+      }
+    }
+  }
+  // Valeurs de propriétés des instances, une fois les propriétés créées.
+  private applyProps() {
+    for (const { instance, values } of this.pendingProps.splice(0)) {
+      const defs = instance.componentProperties ?? {};
+      const out: Record<string, string | boolean> = {};
+      for (const [name, v] of Object.entries(values)) {
+        const key = Object.keys(defs).find((k) => k.split('#')[0] === name);
+        if (!key) continue;
+        if (defs[key].type === 'INSTANCE_SWAP') {
+          const c =
+            this.components.get(String(v)) ??
+            this.found(String(v), 'COMPONENT');
+          if (c) out[key] = c.id;
+        } else out[key] = v;
+      }
+      if (!Object.keys(out).length) continue;
+      try {
+        instance.setProperties(out);
+      } catch {
+        this.warnings.add(`Propriétés non appliquées sur ${instance.name}.`);
+      }
+    }
   }
 
   // Composants (variantes regroupées en component sets).
@@ -661,6 +965,11 @@ class Exporter {
     };
     defs.forEach((d) => visit(d));
     const sets = new Map<string, any[]>();
+    const built: {
+      def: (typeof defs)[number];
+      comp: any;
+      bindings: { target: any; refs: NonNullable<Scene['refs']> }[];
+    }[] = [];
     for (const def of order) {
       await this.tick(`Composant ${def.variant ?? def.name}`);
       let comp = this.found(def.id, 'COMPONENT');
@@ -674,7 +983,9 @@ class Exporter {
         comp = figma.createComponent();
         this.page.appendChild(comp);
       }
+      const before = this.bindings.length;
       await this.build({ ...def.root, instanceOf: undefined }, comp);
+      built.push({ def, comp, bindings: this.bindings.splice(before) });
       comp.name = def.variant ?? def.name;
       this.mark(comp, def.id, isNew);
       this.components.set(def.id, comp);
@@ -699,6 +1010,9 @@ class Exporter {
       set.counterAxisSizingMode = 'AUTO';
       this.mark(set, 'set/' + name, isNew);
     }
+    // Propriétés après les sets : Figma les porte sur le set.
+    for (const b of built) this.properties(b.def, b.comp, b.bindings);
+    this.applyProps();
   }
 
   // Planches du DS : Couleurs, Typographie, Espacements, Composants.
@@ -859,6 +1173,8 @@ class Exporter {
       frame.y = 0;
     }
     await this.build({ ...screen.root, instanceOf: undefined }, frame);
+    this.bindings = [];
+    this.applyProps();
     frame.name = screen.name;
     frame.clipsContent = true;
     this.mark(frame, screen.id, isNew);

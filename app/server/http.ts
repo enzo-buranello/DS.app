@@ -3,15 +3,33 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { proposeSchema } from '../shared/model.js';
+import { proposeSchema, tokenKeys, type TokenKey } from '../shared/model.js';
+import { instanceOverrideSchema } from '../shared/edits.js';
+import { legacyFields, readOwn, writeLegacy } from '../shared/legacy.js';
+import {
+  applyAgentPatches,
+  nodePatchesSchema,
+  ScopeError,
+  scopeContext,
+} from '../shared/agentPatch.js';
+import type { DocNode } from '../shared/doc.js';
+import { locate } from '../shared/render.js';
 import { Store, StudioError } from './store.js';
 import { ProjectStore } from './project.js';
 import { ComponentStore } from './components.js';
+import {
+  DocStore,
+  HistoryStore,
+  nodeOpSchema,
+  screensOpSchema,
+} from './doc.js';
+import { AssetStore } from './assets.js';
 import type { FigmaBridge } from './figmaBridge.js';
 import { FigmaSync, openFigmaUrl } from './figmaSync.js';
 import { parseFigmaUrl } from '../shared/figmaTarget.js';
 import { figmaCommands } from '../shared/figmaProtocol.js';
-import { exportPayloadSchema } from '../shared/figmaExport.js';
+import { EXPORT_VERSION, exportPayloadSchema } from '../shared/figmaExport.js';
+import { clientBuild, versionWatch } from './version.js';
 import { componentSchema } from '../shared/component.js';
 import {
   componentDraftSchema,
@@ -46,11 +64,16 @@ export async function createStudioServer(options: {
   };
   const project = new ProjectStore(store.directory);
   const components = new ComponentStore(store.directory);
+  const docs = new DocStore(store.directory);
+  const history = new HistoryStore(store.directory);
+  const assets = new AssetStore(store.directory);
   const figmaSync = options.figma
     ? new FigmaSync(store.directory, options.figma)
     : null;
   await figmaSync?.load();
   const openUrl = options.openUrl ?? openFigmaUrl;
+  // Code serveur modifié depuis le démarrage : signalé à l'app et au lanceur.
+  const version = await versionWatch(root);
   const needFigma = () => {
     if (!options.figma || !figmaSync)
       throw new StudioError('Pont Figma non démarré.', 503);
@@ -68,6 +91,35 @@ export async function createStudioServer(options: {
         appType: 'spa',
       })
     : null;
+  // Périmètre d'un élément sélectionné, recalculé ici depuis les données réelles.
+  async function agentTarget(e: {
+    kind: 'token' | 'master' | 'instance' | 'custom';
+    key: string;
+    master?: string;
+    name: string;
+    current: Record<string, unknown>;
+  }) {
+    const element = {
+      kind: e.kind,
+      id: e.key,
+      name: e.name,
+      fields: [] as string[],
+      current: e.current,
+      overrides: null as Record<string, unknown> | null,
+    };
+    if (e.kind === 'token') {
+      if (!tokenKeys.includes(e.key as TokenKey))
+        throw new StudioError('Token inconnu.');
+      return { element };
+    }
+    // Élément du document (clé rendue) : champs et valeurs relus ici.
+    const doc = await docs.read();
+    if (!locate(doc, e.key)) throw new StudioError('Élément introuvable.', 404);
+    element.fields = legacyFields(doc, e.key);
+    element.overrides = readOwn(doc, e.key) as Record<string, unknown>;
+    (element as { nodes?: unknown[] }).nodes = scopeContext(doc, e.key);
+    return { element, doc };
+  }
   const server = http.createServer(async (req, res) => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
@@ -109,7 +161,7 @@ export async function createStudioServer(options: {
           throw new StudioError('Contrôle privé refusé.', 403);
         const { token: _token, ...identity } = control.record;
         if (url.pathname === '/_studio/health' && req.method === 'GET')
-          return send(200, identity);
+          return send(200, { ...identity, stale: await version.stale() });
         if (url.pathname === '/_studio/stop' && req.method === 'POST') {
           send(200, identity);
           setImmediate(control.stop);
@@ -119,6 +171,14 @@ export async function createStudioServer(options: {
       }
       if (url.pathname.startsWith('/api/')) {
         if (req.method === 'GET') {
+          // Versions servies : l'onglet compare son bundle, et le serveur
+          // dit s'il tourne sur un code plus ancien que celui du disque.
+          if (url.pathname === '/api/version')
+            return send(200, {
+              client: options.dev ? null : await clientBuild(root),
+              serverStale: await version.stale(),
+              exportVersion: EXPORT_VERSION,
+            });
           if (url.pathname === '/api/bootstrap')
             return send(200, {
               csrf,
@@ -138,6 +198,18 @@ export async function createStudioServer(options: {
             return send(200, await project.read());
           if (url.pathname === '/api/components')
             return send(200, await components.read());
+          if (url.pathname === '/api/doc') return send(200, await docs.read());
+          const asset = url.pathname.match(/^\/api\/assets\/([^/]+)$/);
+          if (asset) {
+            const { bytes, type } = await assets.read(asset[1]);
+            res.writeHead(200, {
+              'Content-Type': type,
+              'Cache-Control': 'private, max-age=31536000, immutable',
+            });
+            return void res.end(bytes);
+          }
+          if (url.pathname === '/api/history')
+            return send(200, await history.read());
           if (url.pathname === '/api/state') return send(200, store.snapshot());
           if (url.pathname === '/api/figma/status')
             return send(
@@ -185,7 +257,11 @@ export async function createStudioServer(options: {
               ? 6_000_000
               : url.pathname === '/api/figma/export'
                 ? 8_000_000
-                : 128_000)
+                : url.pathname === '/api/history' ||
+                    url.pathname === '/api/assets' ||
+                    url.pathname === '/api/doc/ops'
+                  ? 4_000_000
+                  : 128_000)
           )
             throw new StudioError('Requête trop volumineuse.', 413);
           chunks.push(chunk);
@@ -204,13 +280,32 @@ export async function createStudioServer(options: {
             .parse(body);
           return send(200, await project.save(b.base, b.project));
         }
-        if (url.pathname === '/api/components/save') {
-          const b = z.object({ component: z.unknown() }).strict().parse(body);
-          return send(200, await components.save(b.component));
+        // Image d'un fond : enregistrée par empreinte, format vérifié.
+        if (url.pathname === '/api/assets') {
+          const b = z
+            .object({
+              mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+              data: z.string().max(3_000_000),
+            })
+            .strict()
+            .parse(body);
+          return send(200, await assets.save(b.mediaType, b.data));
         }
-        if (url.pathname === '/api/components/delete') {
-          const b = z.object({ id: z.string().uuid() }).strict().parse(body);
-          return send(200, await components.remove(b.id));
+        // Geste sur le document : nœuds entiers, refusé si l'un a changé.
+        if (url.pathname === '/api/doc/ops') {
+          const b = z
+            .object({
+              ops: z.array(nodeOpSchema).max(500),
+              screens: screensOpSchema.optional(),
+            })
+            .strict()
+            .refine((x) => x.ops.length || x.screens, 'Opération vide.')
+            .parse(body);
+          return send(200, await docs.apply(b.ops, b.screens));
+        }
+        if (url.pathname === '/api/history') {
+          const b = z.object({ history: z.unknown() }).strict().parse(body);
+          return send(200, await history.save(b.history));
         }
         // Pont Figma : une commande du protocole, relayée au plugin ouvert.
         if (url.pathname === '/api/figma/command') {
@@ -254,6 +349,13 @@ export async function createStudioServer(options: {
         // Export vers Figma : payload validé ici, puis tâche suivie et annulable.
         if (url.pathname === '/api/figma/export') {
           const { bridge, sync } = needFigma();
+          // Onglet ouvert avant une mise à jour : il envoie l'ancien format.
+          const version = (body as { version?: unknown } | null)?.version;
+          if (version !== EXPORT_VERSION)
+            throw new StudioError(
+              `Cet onglet utilise l’ancien format d’export (v${String(version)}, attendu v${EXPORT_VERSION}). Rechargez la page (Cmd+Maj+R) puis relancez l’export.`,
+              409,
+            );
           // Cible définie : l'export va toujours dans ce fichier, jamais ailleurs.
           return send(
             200,
@@ -381,6 +483,27 @@ export async function createStudioServer(options: {
                     .strict(),
                 )
                 .max(10),
+              // Élément sélectionné : le contrôleur déduit lui-même le périmètre.
+              element: z
+                .object({
+                  kind: z.enum(['token', 'master', 'instance', 'custom']),
+                  key: z.string().max(400),
+                  master: z.string().max(400).optional(),
+                  name: z.string().max(120),
+                  current: z
+                    .record(
+                      z.string().max(40),
+                      z.union([
+                        z.string().max(300),
+                        z.number(),
+                        z.boolean(),
+                        z.null(),
+                      ]),
+                    )
+                    .default({}),
+                })
+                .strict()
+                .optional(),
             })
             .strict()
             .parse(body);
@@ -391,6 +514,7 @@ export async function createStudioServer(options: {
             );
           if (busy)
             throw new StudioError('Une demande IA est déjà en cours.', 429);
+          const target = b.element && (await agentTarget(b.element));
           busy = true;
           const controller = new AbortController();
           active.add(controller);
@@ -416,17 +540,95 @@ export async function createStudioServer(options: {
                   JSON.stringify((await project.read()).project),
                 rules: await context('DESIGN_RULES.md'),
                 history: b.history,
+                ...(target ? { element: target.element } : {}),
               },
               controller.signal,
             );
-            const proposal = reply.changes.length
-              ? store.propose(
-                  b.revision,
-                  reply.changes,
-                  b.agent === 'claude' ? 'claude' : 'codex',
+            const source = b.agent === 'claude' ? 'claude' : 'codex';
+            // Écriture directe : journalisée, annulable par l'étudiant (Cmd+Z).
+            const writeTokens = async (
+              changes: { key: TokenKey; value: string | number }[],
+            ) => {
+              if (!changes.length) return null;
+              const p = store.propose(b.revision, changes, source);
+              const state = await store.commit(p.id);
+              return { type: 'token' as const, patches: p.patches, state };
+            };
+            const outside = () =>
+              new StudioError(
+                `Réponse hors périmètre de « ${b.element!.name} » : rien n’a été appliqué.`,
+                422,
+              );
+            let applied: unknown = null;
+            if (!target) {
+              if (reply.patch || reply.nodes?.length)
+                throw new StudioError(
+                  'Aucun élément sélectionné : seuls les tokens peuvent changer.',
+                  422,
+                );
+              applied = await writeTokens(reply.changes);
+            } else if (target.element.kind === 'token') {
+              if (
+                reply.patch ||
+                reply.nodes?.length ||
+                reply.changes.some((c) => c.key !== target.element.id)
+              )
+                throw outside();
+              applied = await writeTokens(reply.changes);
+            } else {
+              if (reply.changes.length) throw outside();
+              const patch = instanceOverrideSchema.parse(reply.patch ?? {});
+              if (
+                Object.keys(patch).some(
+                  (k) => !target.element.fields.includes(k),
                 )
-              : null;
-            return send(200, { message: reply.message, proposal });
+              )
+                throw outside();
+              const nodePatches = nodePatchesSchema.safeParse(
+                reply.nodes ?? [],
+              );
+              if (!nodePatches.success)
+                throw new StudioError(
+                  'Réponse de l’agent invalide (propriétés de nœud) : rien n’a été appliqué.',
+                  422,
+                );
+              if (target.doc) {
+                // Champs historiques puis patchs de nœuds, sur le même document.
+                let doc = target.doc;
+                const changed = new Map<string, DocNode>();
+                const write = (nodes: DocNode[]) => {
+                  for (const n of nodes) {
+                    changed.set(n.id, n);
+                    doc = { ...doc, nodes: { ...doc.nodes, [n.id]: n } };
+                  }
+                };
+                if (Object.keys(patch).length)
+                  write(
+                    writeLegacy(doc, target.element.id, {
+                      ...target.element.overrides,
+                      ...patch,
+                    }),
+                  );
+                try {
+                  write(
+                    applyAgentPatches(doc, target.element.id, nodePatches.data),
+                  );
+                } catch (e) {
+                  if (e instanceof ScopeError) throw outside();
+                  throw e;
+                }
+                const ops = [...changed.values()].map((n) => ({
+                  id: n.id,
+                  before: target.doc!.nodes[n.id] ?? null,
+                  after: n,
+                }));
+                if (ops.length) {
+                  await docs.apply(ops);
+                  applied = { type: 'doc', ops };
+                }
+              }
+            }
+            return send(200, { message: reply.message, applied });
           } finally {
             busy = false;
             active.delete(controller);

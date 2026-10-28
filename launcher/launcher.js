@@ -21,7 +21,12 @@ async function refresh() {
   try {
     const state = await request('status');
     document.querySelector('#status').textContent =
-      'État : ' + state.phase + (state.pid ? ' · PID ' + state.pid : '');
+      'État : ' +
+      state.phase +
+      (state.pid ? ' · PID ' + state.pid : '') +
+      (state.serverStale
+        ? ' · code modifié depuis le démarrage : cliquez Démarrer pour relancer'
+        : '');
     document.querySelector('#error').textContent = state.error;
     document.querySelector('#setup').hidden = state.ready;
     document.querySelector('#output').textContent = state.output;
@@ -35,7 +40,8 @@ async function refresh() {
         (['open', 'stop', 'restart'].includes(name) &&
           state.phase !== 'actif' &&
           state.phase !== 'erreur') ||
-        (name === 'start' && (!state.ready || state.phase === 'actif')) ||
+        (name === 'start' &&
+          (!state.ready || (state.phase === 'actif' && !state.serverStale))) ||
         (name === 'prepare' && state.phase === 'actif') ||
         (name === 'restore' && (!state.backup || !!state.pid));
     }
@@ -54,10 +60,19 @@ for (const button of document.querySelectorAll('[data-action]'))
       )
     )
       return;
-    if (name === 'restore' && !confirm('Restaurer la révision précédente des tokens et de l’historique ? L’état actuel sera archivé dans le dossier privé, même s’il est invalide. Le brief PFE ne change pas.')) return;
+    if (
+      name === 'restore' &&
+      !confirm(
+        'Restaurer la révision précédente des tokens et de l’historique ? L’état actuel sera archivé dans le dossier privé, même s’il est invalide. Le brief PFE ne change pas.',
+      )
+    )
+      return;
     pending = true;
     try {
-      await request(name, ['prepare', 'restore'].includes(name) ? { confirm: true } : {});
+      await request(
+        name,
+        ['prepare', 'restore'].includes(name) ? { confirm: true } : {},
+      );
       if (name === 'quit') {
         quitting = true;
         document.querySelector('#feedback').textContent =

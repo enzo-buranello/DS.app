@@ -87,8 +87,30 @@ function mockFigma() {
     nodes.set(n.id, n);
     return n;
   };
+  // Propriétés de composant, comme Figma : « Nom#id » sur le set ou le composant.
+  const withProperties = (n: Any) => {
+    n.componentPropertyDefinitions = {} as Any;
+    n.addComponentProperty = (name: string, type: string, value: unknown) => {
+      const key = `${name}#${++seq}`;
+      n.componentPropertyDefinitions[key] = { type, defaultValue: value };
+      return key;
+    };
+    return n;
+  };
+  // Instance : copie la structure du composant (calques dans le même ordre).
+  const clone = (x: Any): Any => {
+    const c = node(x.type, {
+      name: x.name,
+      characters: x.characters,
+      fontName: x.fontName,
+      layoutMode: x.layoutMode,
+      mainComponent: x.mainComponent,
+    });
+    for (const k of x.children) c.appendChild(clone(k));
+    return c;
+  };
   const component = () => {
-    const c = node('COMPONENT');
+    const c = withProperties(node('COMPONENT'));
     c.createInstance = () => {
       const inst = node('INSTANCE', {
         mainComponent: c,
@@ -97,10 +119,13 @@ function mockFigma() {
       });
       // Comme Figma : une instance porte les pluginData de son composant.
       inst.getPluginData = (k: string) => c.getPluginData(k);
-      for (const t of c.findAll((x: Any) => x.type === 'TEXT'))
-        inst.appendChild(
-          node('TEXT', { characters: t.characters, fontName: t.fontName }),
-        );
+      for (const k of c.children) inst.appendChild(clone(k));
+      const owner = () => (c.parent?.type === 'COMPONENT_SET' ? c.parent : c);
+      Object.defineProperty(inst, 'componentProperties', {
+        get: () => owner().componentPropertyDefinitions,
+      });
+      inst.setProperties = (values: Any) =>
+        (inst.properties = { ...inst.properties, ...values });
       return inst;
     };
     return c;
@@ -136,11 +161,14 @@ function mockFigma() {
       return p;
     },
     createFrame: () => node('FRAME', { fills: [] }),
+    createImage: (bytes: Uint8Array) => ({ hash: `img-${bytes.length}` }),
+    base64Decode: (data: string) => Buffer.from(data, 'base64'),
+    createNodeFromSvg: (svg: string) => node('FRAME', { svg }),
     createRectangle: () => node('RECTANGLE', { fills: [] }),
     createText: () => node('TEXT', { characters: '' }),
     createComponent: component,
     combineAsVariants(members: Any[], parent: Any) {
-      const set = node('COMPONENT_SET');
+      const set = withProperties(node('COMPONENT_SET'));
       parent.appendChild(set);
       for (const m of members) set.appendChild(m);
       return set;
@@ -203,6 +231,10 @@ function mockFigma() {
         ...p,
         boundVariables: { color: v.name },
       }),
+      setBoundVariableForEffect: (e: Any, _f: string, v: Any) => ({
+        ...e,
+        boundVariables: { color: v.name },
+      }),
     },
   };
   vm.runInNewContext(code, { figma, __html__: '', console, setTimeout });
@@ -249,6 +281,7 @@ function mockFigma() {
 }
 
 const text = (characters: string, style = 'text/corps-400'): SceneNode => ({
+  kind: 'TEXT',
   name: characters,
   x: 0,
   y: 0,
@@ -262,9 +295,14 @@ const text = (characters: string, style = 'text/corps-400'): SceneNode => ({
     fontWeight: 400,
     fontSize: 16,
     fontSizeVariable: 'font.body',
-    lineHeight: 24,
+    lineHeight: { unit: 'PIXELS', value: 24 },
     letterSpacing: 0,
     align: 'LEFT',
+    valign: 'TOP',
+    textCase: 'ORIGINAL',
+    decoration: 'NONE',
+    autoResize: 'WIDTH_AND_HEIGHT',
+    maxLines: null,
     color: { hex: '#FFFFFF', opacity: 1, variable: 'color.onBrand' },
     style,
   },
@@ -282,7 +320,15 @@ const box = (
   h: 44,
   sizingH: 'HUG',
   sizingV: 'HUG',
-  fill: { hex: '#3154C4', opacity: 1, variable: 'color.brand' },
+  fills: [
+    {
+      type: 'SOLID',
+      hex: '#3154C4',
+      opacity: 1,
+      variable: 'color.brand',
+      visible: true,
+    },
+  ],
   radius: [10, 10, 10, 10],
   radiusVariables: [
     'radius.control',
@@ -292,6 +338,8 @@ const box = (
   ],
   layout: {
     direction: 'HORIZONTAL',
+    wrap: false,
+    reverseZ: false,
     gap: 8,
     gapVariable: 'space.sm',
     padding: [8, 16, 8, 16],
@@ -302,6 +350,15 @@ const box = (
   children,
   ...extra,
 });
+const SHADOW = {
+  type: 'DROP_SHADOW' as const,
+  x: 0,
+  y: 4,
+  blur: 12,
+  spread: 0,
+  color: { hex: '#000000', opacity: 0.2 },
+  visible: true,
+};
 function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
   return {
     version: EXPORT_VERSION,
@@ -367,22 +424,16 @@ function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
         fontWeight: 400,
         fontSize: 16,
         fontSizeVariable: 'font.body',
-        lineHeight: 24,
+        lineHeight: { unit: 'PIXELS', value: 24 },
         letterSpacing: 0,
         sample: 'Corps',
       },
     ],
     effectStyles: [
       {
-        id: 'shadow/1',
-        name: 'DS-Studio/Ombre 1',
-        shadow: {
-          x: 0,
-          y: 4,
-          blur: 12,
-          spread: 0,
-          color: { hex: '#000000', opacity: 0.2 },
-        },
+        id: 'effect/1',
+        name: 'DS-Studio/Effet 1',
+        effects: [SHADOW],
       },
     ],
     components: [
@@ -391,6 +442,7 @@ function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
         name: 'Button',
         set: 'Button',
         variant: 'Variante=Principal',
+        properties: [],
         root: box('Variante=Principal', [text('Action')]),
       },
       {
@@ -398,6 +450,7 @@ function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
         name: 'Button',
         set: 'Button',
         variant: 'Variante=Secondaire',
+        properties: [],
         root: box('Variante=Secondaire', [text('Secondaire')]),
       },
       {
@@ -405,28 +458,25 @@ function dsPayload(overrides: Partial<ExportPayload> = {}): ExportPayload {
         name: 'Carte réservation',
         set: null,
         variant: null,
+        properties: [],
         root: box(
           'Carte réservation',
           [
             text('Faire moins'),
-            box('Variante=Principal', [text('Réserver une place')], {
-              instanceOf: 'button/primary',
-              sizingH: 'FILL',
-            }),
+            box(
+              'Variante=Principal',
+              [{ ...text('Réserver une place'), overridden: true }],
+              {
+                instanceOf: 'button/primary',
+                sizingH: 'FILL',
+              },
+            ),
           ],
-          {
-            shadow: {
-              x: 0,
-              y: 4,
-              blur: 12,
-              spread: 0,
-              color: { hex: '#000000', opacity: 0.2 },
-              style: 'shadow/1',
-            },
-          },
+          { effects: [SHADOW], effectStyle: 'effect/1' },
         ),
       },
     ],
+    images: [],
     ...overrides,
   } as ExportPayload;
 }
@@ -563,9 +613,11 @@ test('aperçu : instances des composants existants, création des manquants, pag
   const screen = box(
     'DS-Studio / Découvrir / 375',
     [
-      box('Variante=Principal', [text('Voir les ateliers')], {
-        instanceOf: 'button/primary',
-      }),
+      box(
+        'Variante=Principal',
+        [{ ...text('Voir les ateliers'), overridden: true }],
+        { instanceOf: 'button/primary' },
+      ),
       box('Badge', [text('Nouveau')], { instanceOf: 'custom/badge' }),
     ],
     { sizingH: 'FIXED', sizingV: 'HUG', w: 375 },
@@ -580,6 +632,7 @@ test('aperçu : instances des composants existants, création des manquants, pag
         name: 'Badge',
         set: null,
         variant: null,
+        properties: [],
         root: box('Badge', [text('Nouveau')]),
       },
     ],
@@ -712,4 +765,248 @@ test('doublons d’un ancien export : signalés, le premier est mis à jour, rie
     ),
   );
   assert.equal(copy.removed, false);
+});
+
+test('aperçu : override d’instance (fond, rayon, texte) reporté sur l’instance seule', async () => {
+  const m = mockFigma();
+  await m.exportPayload(dsPayload());
+  const [primary] = byKey(m, 'button/primary');
+  // Variables du payload de test : color.brand (#3154C4) et color.onBrand.
+  const red = { hex: '#B4233E', opacity: 1 };
+  const label = { ...text('S’inscrire'), overridden: true };
+  label.text!.color = { hex: '#3154C4', opacity: 1, variable: 'color.brand' };
+  const screen = box(
+    'DS-Studio / Découvrir / 375',
+    [
+      box('Variante=Principal', [label], {
+        instanceOf: 'button/primary',
+        overridden: true,
+        fills: [{ type: 'SOLID', ...red, visible: true }],
+        radius: [24, 24, 24, 24],
+        radiusVariables: [null, null, null, null],
+      }),
+      box('Variante=Principal', [text('Voir')], {
+        instanceOf: 'button/primary',
+      }),
+    ],
+    { sizingH: 'FIXED', sizingV: 'HUG', w: 375 },
+  );
+  const r = await m.exportPayload({
+    ...dsPayload({ page: { mode: 'current' } }),
+    kind: 'preview',
+    components: [dsPayload().components[0]],
+    screen: { id: 'screen/cards/375', name: screen.name, root: screen },
+  } as ExportPayload);
+  assert.equal(r.ok, true, r.error);
+  const [frame] = byKey(m, 'screen/cards/375');
+  const [changed, untouched] = frame.children;
+  assert.equal(changed.mainComponent, primary);
+  assert.deepEqual(plain(changed.fills[0].color), {
+    r: 0xb4 / 255,
+    g: 0x23 / 255,
+    b: 0x3e / 255,
+  });
+  assert.equal(changed.topLeftRadius, 24);
+  assert.equal(changed.children[0].characters, 'S’inscrire');
+  assert.equal(
+    changed.children[0].fills[0].boundVariables.color,
+    'color/brand',
+  );
+  // L'instance sans override garde les valeurs du composant.
+  assert.equal(untouched.fills, undefined);
+  assert.equal(untouched.children[0].characters, 'Action');
+});
+
+test('export v2 : fonds, contours, effets, contraintes, typo, propriétés de composant, états', async () => {
+  const m = mockFigma();
+  const label: SceneNode = {
+    ...text('Action'),
+    refs: { characters: 'Texte' },
+    text: {
+      ...text('Action').text!,
+      textCase: 'UPPER',
+      decoration: 'UNDERLINE',
+      autoResize: 'TRUNCATE',
+      maxLines: 2,
+      lineHeight: { unit: 'PERCENT', value: 125 },
+    },
+  };
+  const rich = box('Variante=Principal, Interaction=Défaut', [label], {
+    fills: [
+      {
+        type: 'GRADIENT_LINEAR',
+        angle: 180,
+        stops: [
+          { position: 0, hex: '#3154C4', opacity: 1, variable: 'color.brand' },
+          { position: 1, hex: '#FFFFFF', opacity: 0.5 },
+        ],
+        opacity: 1,
+        visible: true,
+      },
+      {
+        type: 'IMAGE',
+        asset: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+        scaleMode: 'FIT',
+        opacity: 0.8,
+        visible: true,
+      },
+    ],
+    strokes: [
+      {
+        paint: { hex: '#3154C4', opacity: 1, variable: 'color.brand' },
+        weight: [1, 0, 2, 0],
+        align: 'OUTSIDE',
+        dash: [4, 4],
+        visible: true,
+      },
+    ],
+    effects: [
+      { type: 'LAYER_BLUR', radius: 4, visible: true },
+      { ...SHADOW, type: 'INNER_SHADOW' },
+    ],
+    cornerSmoothing: 0.6,
+    opacity: 0.5,
+    blendMode: 'MULTIPLY',
+    children: [
+      label,
+      {
+        ...box('Pastille', []),
+        kind: 'RECTANGLE',
+        absolute: { h: 'MAX', v: 'CENTER' },
+        x: 4,
+        y: 2,
+        rotation: -15,
+        minW: 20,
+      },
+    ],
+  });
+  const hover = box('Variante=Principal, Interaction=Survol', [
+    { ...text('Action'), refs: { characters: 'Texte' } },
+  ]);
+  const props = [{ name: 'Texte', type: 'TEXT' as const, default: 'Action' }];
+  const payload = dsPayload({
+    effectStyles: [],
+    images: [
+      {
+        asset: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+        data: Buffer.from('png!').toString('base64'),
+      },
+    ],
+    components: [
+      {
+        id: 'button/primary',
+        name: 'Button',
+        set: 'Button',
+        variant: 'Variante=Principal, Interaction=Défaut',
+        properties: props,
+        root: rich,
+      },
+      {
+        id: 'button/primary::hover',
+        name: 'Button',
+        set: 'Button',
+        variant: 'Variante=Principal, Interaction=Survol',
+        properties: props,
+        root: hover,
+      },
+    ],
+  });
+  const r = await m.exportPayload(payload);
+  assert.equal(r.ok, true, r.error);
+  const [set] = byKey(m, 'set/Button');
+  assert.deepEqual(
+    set.children.map((c: Any) => c.name),
+    [
+      'Variante=Principal, Interaction=Défaut',
+      'Variante=Principal, Interaction=Survol',
+    ],
+  );
+  // Propriété créée une fois, sur le set ; textes liés dans chaque variante.
+  const keys = Object.keys(set.componentPropertyDefinitions);
+  assert.equal(keys.length, 1);
+  assert.match(keys[0], /^Texte#/);
+  const [primary] = byKey(m, 'button/primary');
+  const [hoverComp] = byKey(m, 'button/primary::hover');
+  assert.deepEqual(plain(primary.children[0].componentPropertyReferences), {
+    characters: keys[0],
+  });
+  assert.equal(
+    hoverComp.children[0].componentPropertyReferences.characters,
+    keys[0],
+  );
+  // Fonds : dégradé (matrice de l'angle), image par empreinte.
+  const [gradient, image] = primary.fills;
+  assert.equal(gradient.type, 'GRADIENT_LINEAR');
+  assert.equal(gradient.gradientStops.length, 2);
+  // 180° CSS (haut → bas) : rotation de 90° de la matrice Figma.
+  assert.ok(Math.abs(gradient.gradientTransform[0][1] - 1) < 1e-9);
+  assert.deepEqual(plain(image), {
+    type: 'IMAGE',
+    imageHash: 'img-4',
+    scaleMode: 'FIT',
+    opacity: 0.8,
+    visible: true,
+  });
+  // Contour par côté, extérieur, tirets, couleur liée.
+  assert.equal(primary.strokes[0].boundVariables.color, 'color/brand');
+  assert.equal(primary.strokeTopWeight, 1);
+  assert.equal(primary.strokeBottomWeight, 2);
+  assert.equal(primary.strokeAlign, 'OUTSIDE');
+  assert.deepEqual(plain(primary.dashPattern), [4, 4]);
+  // Effets : flou de calque et ombre intérieure liée à sa variable.
+  assert.deepEqual(plain(primary.effects.map((e: Any) => e.type)), [
+    'LAYER_BLUR',
+    'INNER_SHADOW',
+  ]);
+  assert.equal(primary.cornerSmoothing, 0.6);
+  assert.equal(primary.opacity, 0.5);
+  assert.equal(primary.blendMode, 'MULTIPLY');
+  // Typographie complète.
+  const t = primary.children[0];
+  assert.equal(t.textCase, 'UPPER');
+  assert.equal(t.textDecoration, 'UNDERLINE');
+  assert.equal(t.textTruncation, 'ENDING');
+  assert.equal(t.maxLines, 2);
+  assert.deepEqual(plain(t.lineHeight), { value: 125, unit: 'PERCENT' });
+  // Calque absolu dans l'auto layout : contraintes, position, rotation.
+  const dot = primary.children[1];
+  assert.equal(dot.type, 'RECTANGLE');
+  assert.equal(dot.layoutPositioning, 'ABSOLUTE');
+  assert.deepEqual(plain(dot.constraints), {
+    horizontal: 'MAX',
+    vertical: 'CENTER',
+  });
+  assert.deepEqual([dot.x, dot.y, dot.rotation, dot.minWidth], [4, 2, -15, 20]);
+
+  // Aperçu : la valeur de propriété de l'instance est appliquée.
+  const screen = box(
+    'Écran',
+    [
+      box('Variante=Principal', [{ ...text('Go'), overridden: true }], {
+        instanceOf: 'button/primary',
+        propValues: { Texte: 'Go' },
+      }),
+    ],
+    { sizingH: 'FIXED', sizingV: 'HUG', w: 375 },
+  );
+  const p = await m.exportPayload({
+    ...payload,
+    page: { mode: 'current' },
+    kind: 'preview',
+    screen: { id: 'screen/cards/375', name: 'Écran', root: screen },
+  } as ExportPayload);
+  assert.equal(p.ok, true, p.error);
+  const [frame] = byKey(m, 'screen/cards/375');
+  assert.deepEqual(plain(frame.children[0].properties), { [keys[0]]: 'Go' });
+});
+
+test('plugin d’une autre version : format refusé avec la marche à suivre', async () => {
+  const m = mockFigma();
+  const r = await m.exportPayload({
+    ...dsPayload(),
+    version: 1,
+  } as unknown as ExportPayload);
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Relancez le plugin DS-Studio Bridge/);
+  assert.equal(m.variables.length, 0);
 });

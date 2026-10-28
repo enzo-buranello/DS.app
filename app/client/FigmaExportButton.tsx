@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { Export } from '@phosphor-icons/react';
 import type { Tokens } from '../shared/model.js';
 import type {
   ExportKind,
@@ -172,7 +173,8 @@ export default function FigmaExportButton({
         aria-controls={menuId}
         onClick={() => setOpen(!open)}
       >
-        <span aria-hidden="true">↗</span> Exporter
+        <Export />
+        Exporter
       </button>
       {open && (
         <div

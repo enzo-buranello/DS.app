@@ -167,7 +167,11 @@ test('plugin : annonce du fichier, infos, page cible par node-id', async () => {
   const { send, page, screens, figma, messages } = mockFigma();
   // Annonce envoyée au démarrage : ui.html la relaie à chaque connexion.
   assert.deepEqual(JSON.parse(JSON.stringify(messages[0])), {
-    hello: { fileKey: 'iUWEVG8MtolVVF3uv2f24U', fileName: 'Nosh' },
+    hello: {
+      fileKey: 'iUWEVG8MtolVVF3uv2f24U',
+      fileName: 'Nosh',
+      exportVersion: 2,
+    },
   });
   const info = (await send('get_file_info')).result;
   assert.equal(info.fileKey, 'iUWEVG8MtolVVF3uv2f24U');
