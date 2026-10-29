@@ -1051,3 +1051,44 @@ code {
 .effects[open] {
   gap: var(--ui-s-2);
 }
+
+/* --- Historique --- */
+.history-anchor {
+  position: relative;
+}
+.menu.history {
+  left: auto;
+  right: 0;
+  width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--ui-s-3);
+  gap: var(--ui-s-2);
+}
+.menu.history ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-1);
+}
+.menu.history li {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s-2);
+  padding: var(--ui-s-1) var(--ui-s-2);
+  border-radius: var(--ui-r-control);
+}
+.menu.history li:hover {
+  background: var(--ui-hover);
+}
+.history-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-text .muted {
+  font-size: var(--ui-fs-caption);
+}

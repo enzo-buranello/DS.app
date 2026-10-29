@@ -15,6 +15,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StudioApi } from '../shared/api.js';
 import { design, suggestName } from './agent.js';
+import { History } from './history.js';
+import type { Entry } from '../shared/history.js';
+import type { Project } from '../shared/project.js';
 import { fetchFigma, fileKey } from './figma.js';
 import {
   atomicWrite,
@@ -76,12 +79,45 @@ async function figmaToken(token?: string) {
   return raw ? safeStorage.decryptString(Buffer.from(raw, 'base64')) : null;
 }
 
+// Un projet sans historique (ouvert depuis un autre poste) reçoit d'abord
+// son état de départ, pour qu'on puisse toujours y revenir.
+async function base(dir: string, project: Project) {
+  const h = new History(dir);
+  if (!(await h.list()).length)
+    await h.record(null, project, { kind: 'create', label: 'Création' });
+}
+
+// Toute écriture du projet laisse une entrée dans l'historique.
+async function commit(
+  dir: string,
+  project: Project,
+  meta: { kind: Entry['kind']; label?: string },
+) {
+  const before = await readProject(dir).catch(() => null);
+  if (before) await base(dir, before);
+  const saved = await writeProject(dir, project);
+  await new History(dir).record(before, saved, meta);
+  return saved;
+}
+async function withEntry(
+  dir: string,
+  before: Project,
+  after: Project,
+  meta: { kind: Entry['kind']; label?: string },
+) {
+  await base(dir, before);
+  const project = await writeProject(dir, after);
+  const entry = await new History(dir).record(before, project, meta);
+  return { project, entry: entry.id };
+}
+
 const api: StudioApi = {
   list: () => recents.list(),
   async create(name) {
     const dir = await pickFolder();
     if (!dir) return null;
     const project = await createProject(dir, name);
+    await base(dir, project);
     await recents.add(dir);
     return { path: dir, project };
   },
@@ -89,12 +125,13 @@ const api: StudioApi = {
     dir ??= (await pickFolder()) ?? undefined;
     if (!dir) return null;
     const project = await readProject(dir);
+    await base(dir, project);
     await recents.add(dir);
     return { path: dir, project };
   },
-  async save(dir, project) {
+  async save(dir, project, label) {
     await known(dir);
-    return writeProject(dir, project);
+    return commit(dir, project, { kind: 'manual', label });
   },
   async move(dir) {
     await known(dir);
@@ -104,9 +141,14 @@ const api: StudioApi = {
     await recents.add(to, dir);
     return { path: to, project };
   },
-  async design(dir, instruction) {
+  async design(dir, instruction, scope) {
     await known(dir);
-    return writeProject(dir, await design(await readProject(dir), instruction));
+    const before = await readProject(dir);
+    const after = await design(before, instruction, scope);
+    return withEntry(dir, before, after, {
+      kind: 'ai',
+      label: instruction,
+    });
   },
   async figmaImport(dir, { url, token, variables }) {
     await known(dir);
@@ -122,20 +164,44 @@ const api: StudioApi = {
       path.join(dir, '.studio', 'cache', 'figma.json'),
       JSON.stringify(source),
     );
+    const before = await readProject(dir);
     const project = await design(
-      await readProject(dir),
-      'Remplace le design system par la conversion de cet import Figma : styles et variables en fondations, composants (et leurs variantes d’état) en composants.',
+      before,
+      'Remplace le design system par la conversion de cet import Figma : styles et variables en fondations, composants (et leurs variantes d’état) en composants. Ne change pas les pages.',
+      {},
       source,
     );
-    return writeProject(dir, {
-      ...project,
-      ...(key && {
-        figma: { fileKey: key, importedAt: new Date().toISOString() },
-      }),
-    });
+    return withEntry(
+      dir,
+      before,
+      {
+        ...project,
+        ...(key && {
+          figma: { fileKey: key, importedAt: new Date().toISOString() },
+        }),
+      },
+      { kind: 'ai', label: 'Import Figma' },
+    );
   },
   hasFigmaToken: async () => !!(await figmaToken()),
   suggestName: (summary) => suggestName(summary),
+  async history(dir) {
+    await known(dir);
+    return new History(dir).list();
+  },
+  async restore(dir, id) {
+    await known(dir);
+    return commit(dir, await new History(dir).get(id), {
+      kind: 'restore',
+      label: 'Restauration',
+    });
+  },
+  async discard(dir, id) {
+    await known(dir);
+    const previous = await new History(dir).discard(id);
+    if (!previous) throw new Error('Rien à annuler');
+    return writeProject(dir, previous);
+  },
   async importImage(dir) {
     await known(dir);
     const file =

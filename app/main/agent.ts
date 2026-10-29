@@ -1,39 +1,50 @@
 import { readFile } from 'node:fs/promises';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import type { Scope } from '../shared/api.js';
+import { find, update } from '../shared/nodes.js';
 import {
   brokenReferences,
   designSchema,
-  type Design,
+  nodeSchema,
+  projectSchema,
+  type Node,
   type Project,
 } from '../shared/project.js';
 
 // Agent Design : connexion Claude Code existante, aucun outil, aucune réponse
-// en texte. Il renvoie le design system complet, validé avant d'être appliqué.
+// en texte. Portée globale : il renvoie le design system et les pages ; portée
+// élément : il ne renvoie que cet élément. Tout est validé avant d'être écrit,
+// et seule l'app écrit, dans le dossier du projet.
 
-const DESIGN = `Tu es le designer d'un projet d'application. Tu exécutes l'instruction en silence : aucune explication, aucune question, uniquement la sortie structurée.
-
-Tu renvoies le design system complet (fondations et composants) après modification. Garde tel quel tout ce que l'instruction ne demande pas de changer, avec les mêmes identifiants.
+const DESIGN = `Tu es le designer d'un projet d'application. Tu exécutes l'instruction en silence : aucune explication, aucune question, uniquement la sortie structurée. Tu ne touches qu'à ce que la portée désigne.
 
 Règles :
+- Portée globale : tu renvoies le design system complet (fondations, composants) et les pages. Garde tel quel tout ce que l'instruction ne demande pas de changer, avec les mêmes identifiants.
+- Portée élément : tu renvoies uniquement cet élément (et ses enfants), avec le même identifiant. Rien d'autre.
+- Utilise les fondations et les composants du design system : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts ; un composant s'insère par un nœud « component » qui donne son id. Une valeur libre (nombre en px, couleur #rrggbb) seulement si rien ne convient.
 - Noms : regroupe les éléments d'une même famille en dossiers avec « dossier/nom » (ex. « Primaire/500 », « Boutons/Principal ») dès que le design system grandit.
-- Identifiants : minuscules, chiffres et tirets, en anglais court (primary, text-muted, space-4, button).
+- Identifiants : minuscules, chiffres et tirets, en anglais court (primary, text-muted, space-4, button, home).
 - Couleurs : une valeur claire et une valeur sombre, contraste AA pour le texte. Toujours une couleur background (fond de page) et une couleur text.
-- Les styles utilisent les identifiants de fondations existantes : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts. Une valeur libre (nombre en px, couleur #rrggbb) seulement si aucune fondation ne convient.
-- Mise en page en flux uniquement. Nœuds : box (direction row ou column, gap, align, justify, width, height), text (text), image (src), component (instance d'un autre composant par son id).
+- Mise en page en flux de préférence : box (direction row, column ou grid avec columns ; gap, align, justify, width, height), text (text), image (src), shape, component. La disposition « free » (x, y) seulement si on la demande.
+- Une page : racine « root », box en colonne, width fill, des sections empilées.
 - Styles d'un nœud par format : desktop, puis tablet et mobile seulement s'ils changent.
 - États d'un composant (hover, active, disabled) : patch de style par identifiant de nœud.
-- Identifiants de nœuds uniques dans chaque composant.
+- Identifiants de nœuds uniques dans chaque page et chaque composant.
 - Design system vide : crée une base complète et cohérente (couleurs sémantiques, échelle typographique, espacements, arrondis, ombres) et les composants de base utiles (bouton, bouton secondaire, champ, carte, badge…).`;
 
-const schema = z.toJSONSchema(designSchema, {
-  io: 'input',
-  target: 'draft-7',
-}) as Record<string, unknown>;
+const globalSchema = designSchema.extend({
+  pages: projectSchema.shape.pages.optional(),
+});
+const elementSchema = z.object({ node: nodeSchema });
+const jsonSchema = (s: z.ZodType) =>
+  z.toJSONSchema(s, { io: 'input', target: 'draft-7' }) as Record<
+    string,
+    unknown
+  >;
 
-async function ask(prompt: string): Promise<unknown> {
-  if (process.env.STUDIO_FAKE_AGENT)
-    return JSON.parse(await readFile(process.env.STUDIO_FAKE_AGENT, 'utf8'));
+async function ask(prompt: string, schema: z.ZodType, fake?: string) {
+  if (fake) return schema.parse(JSON.parse(await readFile(fake, 'utf8')));
   for await (const m of query({
     prompt,
     options: {
@@ -41,34 +52,82 @@ async function ask(prompt: string): Promise<unknown> {
       tools: [],
       settingSources: [],
       maxTurns: 4,
-      outputFormat: { type: 'json_schema', schema },
+      outputFormat: { type: 'json_schema', schema: jsonSchema(schema) },
     },
   }))
     if (m.type === 'result') {
-      if (m.subtype === 'success') return m.structured_output;
+      if (m.subtype === 'success') return schema.parse(m.structured_output);
       throw new Error(m.subtype);
     }
   throw new Error('Aucun résultat');
 }
 
-/** Applique une instruction au design system et renvoie le projet modifié. */
+/** Applique une instruction et renvoie le projet modifié. */
 export async function design(
   project: Project,
   instruction: string,
+  scope: Scope = {},
   source?: unknown,
 ): Promise<Project> {
-  const current: Design = {
+  const ds = {
     foundations: project.foundations,
     components: project.components,
   };
-  const prompt = [
-    `Design system actuel :\n${JSON.stringify(current)}`,
-    source && `Import Figma à convertir :\n${JSON.stringify(source)}`,
-    `Instruction : ${instruction}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  const next = { ...project, ...designSchema.parse(await ask(prompt)) };
+  let next: Project;
+  if (scope.node) {
+    const tree = scope.page
+      ? project.pages[scope.page]?.root
+      : scope.component && project.components[scope.component]?.root;
+    const node = tree && find(tree, scope.node)?.node;
+    if (!tree || !node) throw new Error('Élément introuvable');
+    const prompt = [
+      `Design system :\n${JSON.stringify(ds)}`,
+      `Portée élément. Élément à modifier :\n${JSON.stringify(node)}`,
+      `Instruction : ${instruction}`,
+    ].join('\n\n');
+    const out = (await ask(
+      prompt,
+      elementSchema,
+      process.env.STUDIO_FAKE_NODE,
+    )) as {
+      node: Node;
+    };
+    const root = update(tree, node.id, () => ({ ...out.node, id: node.id }));
+    next = scope.page
+      ? {
+          ...project,
+          pages: {
+            ...project.pages,
+            [scope.page]: { ...project.pages[scope.page], root },
+          },
+        }
+      : {
+          ...project,
+          components: {
+            ...project.components,
+            [scope.component!]: {
+              ...project.components[scope.component!],
+              root,
+            },
+          },
+        };
+  } else {
+    const prompt = [
+      `Projet actuel :\n${JSON.stringify({ ...ds, pages: project.pages })}`,
+      scope.page && `Page ouverte : ${scope.page}`,
+      source && `Import Figma à convertir :\n${JSON.stringify(source)}`,
+      `Portée globale. Instruction : ${instruction}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const out = (await ask(
+      prompt,
+      globalSchema,
+      process.env.STUDIO_FAKE_AGENT,
+    )) as z.infer<typeof globalSchema>;
+    next = { ...project, ...out, pages: out.pages ?? project.pages };
+  }
+  next = projectSchema.parse(next);
   if (brokenReferences(next).length) throw new Error('Références invalides');
   return next;
 }

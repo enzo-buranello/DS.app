@@ -418,3 +418,22 @@ Preuves : tests unitaires (création, ajustement, détachement) ; e2e (ajout
 sans panneau, glisser libre et aimanté, clic, double-clic, Échap, changement
 de parent avec trait d'insertion, ⌘K, ajustement local, détacher au clic
 droit, renommage au double-clic).
+
+## 2026-10-29 — Phase 4 : IA par portée et historique
+
+Décision : une barre IA dans chaque module. Sans sélection, l'agent Design
+reçoit tout le projet et renvoie design system et pages ; avec un élément
+sélectionné, il ne reçoit et ne renvoie que cet élément, remis à la même
+place. Tout est validé (schéma, références) avant écriture ; seule l'app
+écrit, dans le dossier du projet. Chaque écriture laisse une entrée dans
+`.studio/history/` (instantané + index) : instruction ou « Modification
+manuelle », portée (élément si un seul élément a changé, sinon global),
+heure. Les modifications manuelles successives d'un même élément partagent
+une entrée. « Annuler » retire l'entrée de l'IA ; « Restaurer » ramène à une
+entrée et en crée une nouvelle. Un projet ouvert sans historique reçoit son
+état de départ.
+
+Preuves : tests unitaires (portée, regroupement, retrait) ; e2e (instruction
+globale, deux déplacements regroupés, portée élément, Annuler, Garder,
+Restaurer) ; essai réel : page d'accueil complète en 47 s sans référence
+cassée, puis un élément modifié en 11 s sans toucher au reste.

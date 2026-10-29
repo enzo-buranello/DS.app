@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react';
 import type { Breakpoint } from '../shared/project.js';
 import {
+  label,
   AddMenu,
   Canvas,
   ElementSettings,
@@ -18,7 +19,8 @@ import {
   type EditorProps,
 } from './Editor.js';
 import { find } from '../shared/nodes.js';
-import { target } from '../shared/instances.js';
+import { split, target } from '../shared/instances.js';
+import type { Scope } from '../shared/api.js';
 import { createComponent, renameComponent, type Update } from './components.js';
 import { contains, flatten, tree, type Folder } from '../shared/folders.js';
 import {
@@ -592,7 +594,7 @@ export function DesignModule(props: {
   onSave: (p: Project) => void;
   onUpdate: Update;
   onFigma: () => void;
-  bar: React.ReactNode;
+  bar: (scope: Scope, target?: string) => React.ReactNode;
 }) {
   const { project } = props;
   const [sel, setSel] = useState<DSSelection>(null);
@@ -659,7 +661,15 @@ export function DesignModule(props: {
             state={state}
             onImport={props.onFigma}
           />
-          {props.bar}
+          {sel?.kind === 'components' && project.components[sel.id]
+            ? props.bar(
+                {
+                  component: sel.id,
+                  node: project.components[sel.id].root.id,
+                },
+                project.components[sel.id].name,
+              )
+            : props.bar({})}
         </main>
         <DesignSettings
           {...ds}
@@ -753,6 +763,14 @@ export function DesignModule(props: {
           <FormatSwitch bp={bp} onChange={setBp} />
         </div>
         <Canvas {...editor} theme={props.theme} patches={patches} component />
+        {(() => {
+          const id = split(editor.sel)?.instance ?? editor.sel;
+          const n = find(c.root, id)?.node ?? c.root;
+          return props.bar(
+            { component: editing, node: n.id },
+            n.id === c.root.id ? c.name : label(n, project),
+          );
+        })()}
       </main>
       <aside className="panel right" aria-label="Paramètres">
         <ElementSettings

@@ -8,6 +8,7 @@ import {
   type Project,
 } from '../shared/project.js';
 import {
+  label,
   AddMenu,
   Canvas,
   ElementSettings,
@@ -17,7 +18,8 @@ import {
   type EditorProps,
 } from './Editor.js';
 import type { Theme } from './render.js';
-import { target } from '../shared/instances.js';
+import { split, target } from '../shared/instances.js';
+import type { Scope } from '../shared/api.js';
 import { createComponent, renameComponent, type Update } from './components.js';
 
 // Module Pages : chaque page est un cadre, libre par défaut, à construire à
@@ -36,7 +38,7 @@ export function PagesModule(props: {
   theme: Theme;
   onSave: (p: Project) => void;
   onUpdate: Update;
-  bar?: React.ReactNode;
+  bar: (scope: Scope, target?: string) => React.ReactNode;
 }) {
   const { project } = props;
   const pages = Object.entries(project.pages);
@@ -148,7 +150,17 @@ export function PagesModule(props: {
             </button>
           </div>
         )}
-        {props.bar}
+        {page &&
+          (() => {
+            // Avec un élément sélectionné, l'IA n'agit que sur lui.
+            const id = editor && (split(editor.sel)?.instance ?? editor.sel);
+            const node =
+              id && id !== page.root.id ? find(page.root, id)?.node : null;
+            return props.bar(
+              node ? { page: pageId!, node: node.id } : { page: pageId! },
+              node ? label(node, project) : undefined,
+            );
+          })()}
       </main>
       <aside className="panel right" aria-label="Paramètres">
         {editor && page && (

@@ -1,19 +1,17 @@
 import { useState } from 'react';
 import { ArrowUp } from '@phosphor-icons/react';
-import type { Project } from '../shared/project.js';
 
 // Barre IA : aucune conversation. En cours, puis Garder / Annuler, ou une
 // seule ligne en cas d'échec.
 export type AiState =
-  | { status: 'idle' | 'busy' | 'error' }
-  | { status: 'review'; previous: Project };
+  { status: 'idle' | 'busy' | 'error' } | { status: 'review'; entry: string };
 
 export function PromptBar(props: {
   state: AiState;
   placeholder: string;
   onSubmit: (text: string) => void;
   onKeep: () => void;
-  onUndo: (previous: Project) => void;
+  onUndo: (entry: string) => void;
 }) {
   const [text, setText] = useState('');
   const { state } = props;
@@ -21,7 +19,7 @@ export function PromptBar(props: {
     return (
       <div className="prompt-bar">
         <span className="prompt-status">Modifié</span>
-        <button className="ghost" onClick={() => props.onUndo(state.previous)}>
+        <button className="ghost" onClick={() => props.onUndo(state.entry)}>
           Annuler
         </button>
         <button className="studio-primary" onClick={props.onKeep}>

@@ -1,0 +1,17 @@
+{
+  "node": {
+    "id": "x",
+    "kind": "shape",
+    "name": "Rectangle",
+    "style": {
+      "desktop": {
+        "x": 40,
+        "y": 40,
+        "width": 200,
+        "height": 100,
+        "background": "primary",
+        "radius": "radius-md"
+      }
+    }
+  }
+}

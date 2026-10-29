@@ -4,7 +4,8 @@ import type { Node, Project } from '../shared/project.js';
 // Création d'un composant depuis un élément, commune aux pages et aux
 // composants ; le nom provisoire est remplacé par celui que propose l'IA.
 
-export type Update = (fn: (p: Project) => Project) => void;
+/** Modifie le dernier état connu ; `label` nomme l'action dans l'historique. */
+export type Update = (fn: (p: Project) => Project, label?: string) => void;
 
 export function renameComponent(p: Project, id: string, name: string): Project {
   const c = p.components[id];
@@ -33,7 +34,7 @@ export function createComponent(
   const out = componentize(project, root, id);
   if (!out) return;
   const draft = out.project.components[out.id].name;
-  onUpdate(() => embed(out.project, out.root));
+  onUpdate(() => embed(out.project, out.root), 'Créer un composant');
   const c = out.project.components[out.id];
   window.studio
     .suggestName(

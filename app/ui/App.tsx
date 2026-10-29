@@ -11,7 +11,8 @@ import {
   SquaresFour,
   Sun,
 } from '@phosphor-icons/react';
-import type { Opened, StudioApi } from '../shared/api.js';
+import type { AiResult, Opened, Scope, StudioApi } from '../shared/api.js';
+import { HistoryButton } from './History.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
 import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
@@ -62,13 +63,13 @@ export default function App() {
     pending.current = null;
     await write?.();
   }
-  function save(project: Project) {
+  function save(project: Project, label?: string) {
     if (!latest.current) return;
     const path = latest.current.path;
     latest.current = { path, project };
     setOpened({ path, project });
     pending.current = () =>
-      api.save(path, project).then(refresh, () => setError(true));
+      api.save(path, project, label).then(refresh, () => setError(true));
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 300);
   }
@@ -101,7 +102,9 @@ export default function App() {
       onOpen={(path) => run(() => api.open(path))}
       onHome={() => flush().then(() => setOpened(null))}
       onSave={save}
-      onUpdate={(fn) => latest.current && save(fn(latest.current.project))}
+      onUpdate={(fn, label) =>
+        latest.current && save(fn(latest.current.project), label)
+      }
       onFlush={flush}
       onReplace={(project) => {
         setOpened({ path: opened.path, project });
@@ -198,17 +201,32 @@ function Shell(props: {
   const current = modules.find((m) => m.id === module)!;
 
   // L'IA applique son résultat sur le canevas ; « Garder » ou « Annuler ».
-  async function runAi(task: () => Promise<Project>) {
-    const previous = project;
+  async function runAi(task: () => Promise<AiResult>) {
     setAi({ status: 'busy' });
     try {
       await props.onFlush();
-      props.onReplace(await task());
-      setAi({ status: 'review', previous });
+      const out = await task();
+      props.onReplace(out.project);
+      setAi({ status: 'review', entry: out.entry });
     } catch {
       setAi({ status: 'error' });
     }
   }
+  // Barre IA : la portée vient du module (élément sélectionné ou global).
+  const bar = (scope: Scope, target?: string) => (
+    <PromptBar
+      state={ai}
+      placeholder={
+        target ? `Modifier « ${target} »` : 'Décrire une modification'
+      }
+      onSubmit={(text) => runAi(() => api.design(path, text, scope))}
+      onKeep={() => setAi({ status: 'idle' })}
+      onUndo={async (entry) => {
+        setAi({ status: 'idle' });
+        props.onReplace(await api.discard(path, entry));
+      }}
+    />
+  );
 
   return (
     <div className="shell">
@@ -245,6 +263,15 @@ function Shell(props: {
           )}
         </div>
         <div className="row">
+          <HistoryButton
+            path={path}
+            version={project.updatedAt}
+            onRestore={async (id) => {
+              await props.onFlush();
+              props.onReplace(await api.restore(path, id));
+              setAi({ status: 'idle' });
+            }}
+          />
           <button
             className="icon-btn"
             aria-label={theme === 'light' ? 'Thème sombre' : 'Thème clair'}
@@ -281,18 +308,7 @@ function Shell(props: {
           onSave={props.onSave}
           onUpdate={props.onUpdate}
           onFigma={() => figma.current?.showModal()}
-          bar={
-            <PromptBar
-              state={ai}
-              placeholder="Décrire le design system"
-              onSubmit={(text) => runAi(() => api.design(path, text))}
-              onKeep={() => setAi({ status: 'idle' })}
-              onUndo={(previous) => {
-                props.onSave(previous);
-                setAi({ status: 'idle' });
-              }}
-            />
-          }
+          bar={bar}
         />
       ) : module === 'pages' ? (
         <PagesModule
@@ -301,6 +317,7 @@ function Shell(props: {
           theme={theme}
           onSave={props.onSave}
           onUpdate={props.onUpdate}
+          bar={bar}
         />
       ) : (
         <>
