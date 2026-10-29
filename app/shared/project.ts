@@ -137,9 +137,99 @@ export const projectSchema = z
     components: z.record(id, componentSchema),
     pages: z.record(id, pageSchema),
     collections: z.record(id, collectionSchema),
+    figma: z
+      .object({ fileKey: z.string(), importedAt: z.string().datetime() })
+      .strict()
+      .optional(),
   })
   .strict();
 export type Project = z.infer<typeof projectSchema>;
+export type Foundations = Project['foundations'];
+export type FoundationKind = keyof Foundations;
+export type Component = Project['components'][string];
+
+// Ce que l'agent Design renvoie : le design system complet.
+export const designSchema = z
+  .object({
+    foundations: foundationsSchema,
+    components: z.record(id, componentSchema),
+  })
+  .strict();
+export type Design = z.infer<typeof designSchema>;
+
+// Chaque propriété de style pointe vers une famille de fondations.
+export const styleKinds: Partial<Record<keyof Style, FoundationKind>> = {
+  gap: 'spacing',
+  padding: 'spacing',
+  maxWidth: 'spacing',
+  background: 'colors',
+  color: 'colors',
+  border: 'colors',
+  radius: 'radius',
+  shadow: 'shadows',
+  font: 'fonts',
+};
+
+const walk = (node: Node, fn: (n: Node) => void) => {
+  fn(node);
+  node.children?.forEach((c) => walk(c, fn));
+};
+const styles = (node: Node) => Object.values(node.style ?? {});
+
+/** Références (fondation ou composant) utilisées par le projet, « famille:id ». */
+export function references(
+  p: Pick<Project, 'components' | 'pages'> & { foundations: Foundations },
+) {
+  const used = new Set<string>();
+  const add = (style: Style) => {
+    for (const [k, v] of Object.entries(style)) {
+      const kind = styleKinds[k as keyof Style];
+      if (kind && typeof v === 'string') used.add(`${kind}:${v}`);
+    }
+  };
+  for (const s of Object.values(p.foundations.shadows))
+    used.add(`colors:${s.color}`);
+  const roots = [
+    ...Object.values(p.components).map((c) => {
+      Object.values(c.states).forEach((patches) =>
+        Object.values(patches ?? {}).forEach(add),
+      );
+      return c.root;
+    }),
+    ...Object.values(p.pages).map((pg) => pg.root),
+  ];
+  for (const root of roots)
+    walk(root, (n) => {
+      styles(n).forEach((s) => s && add(s));
+      if (n.component) used.add(`components:${n.component}`);
+    });
+  return used;
+}
+
+/** Références vers des fondations ou composants absents. */
+export function brokenReferences(p: Parameters<typeof references>[0]) {
+  return [...references(p)].filter((ref) => {
+    const [kind, key] = ref.split(':') as [
+      FoundationKind | 'components',
+      string,
+    ];
+    return !(kind === 'components' ? p.components : p.foundations[kind])[key];
+  });
+}
+
+export function slug(text: string, taken: object) {
+  const base =
+    text
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'element';
+  let out = base;
+  for (let i = 2; out in taken; i++) out = `${base}-${i}`;
+  return out;
+}
 
 export const emptyProject = (projectName: string): Project => ({
   version: PROJECT_VERSION,

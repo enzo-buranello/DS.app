@@ -11,5 +11,22 @@ export type StudioApi = {
   save(path: string, project: Project): Promise<Project>;
   /** Choisit un nouveau dossier de travail et y copie le projet. */
   move(path: string): Promise<Opened | null>;
+  /** Agent Design : applique l'instruction au design system. */
+  design(path: string, instruction: string): Promise<Project>;
+  /** Lien et token Figma, et/ou export JSON des variables. */
+  figmaImport(
+    path: string,
+    source: { url?: string; token?: string; variables?: string },
+  ): Promise<Project>;
+  hasFigmaToken(): Promise<boolean>;
 };
-export const apiMethods = ['list', 'create', 'open', 'save', 'move'] as const;
+export const apiMethods = [
+  'list',
+  'create',
+  'open',
+  'save',
+  'move',
+  'design',
+  'figmaImport',
+  'hasFigmaToken',
+] as const;

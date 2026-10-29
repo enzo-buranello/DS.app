@@ -318,3 +318,24 @@ document v2, lanceurs, scripts de qualification, docs V2, design system et
 
 Preuves (phase 1) : tests unitaires du stockage, e2e Electron (créer,
 renommer, changer de dossier, revenir à l'accueil).
+
+## 2026-10-29 — Phase 2 : design system, création et import
+
+Décision : l'agent Design passe par le Claude Agent SDK avec la connexion
+Claude Code existante, sans aucun outil, et renvoie le design system complet
+en sortie structurée (schéma Zod converti en JSON Schema). Le résultat est
+validé (schéma et références vers les fondations) avant d'être écrit, puis
+s'affiche avec « Garder / Annuler ». Import Figma : endpoints `styles`,
+`components`, puis `nodes` sur ces seuls identifiants ; arbre réduit avant
+l'agent ; cache dans `.studio/cache/figma.json`. Token chiffré par le
+trousseau du système (safeStorage), jamais dans le projet. Export JSON des
+variables accepté à la place ou en plus du lien.
+
+Limite connue : un composant se crée par l'IA ou l'import ; l'édition à la
+main de sa structure arrive avec l'éditeur d'éléments (phase 3). Une
+génération complète prend environ 90 s.
+
+Preuves : génération réelle sur un projet vide (17 couleurs, 9 styles de
+texte, 8 composants, références valides), conservée comme fixture ; tests
+unitaires (références, import Figma simulé) ; e2e (saisie, IA annulée puis
+gardée, états, thème sombre).

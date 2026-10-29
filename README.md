@@ -21,9 +21,15 @@ dans `<dossier>/.studio/project.json` : c'est la seule source de vérité, le
 code est généré à partir de lui. Transmettre le dossier suffit pour reprendre
 le projet sur une autre machine (bouton « Ouvrir » de l'accueil).
 
+## IA
+
+L'IA utilise la connexion Claude Code de la machine : installer
+[Claude Code](https://claude.com/claude-code) et s'y connecter une fois.
+
 ## Code source
 
-- `app/main/` : processus Electron (fenêtre, dossiers, lecture et écriture).
+- `app/main/` : processus Electron (fenêtre, dossiers, lecture et écriture,
+  agent IA, import Figma).
 - `app/shared/` : schéma du projet et contrat entre interface et processus.
 - `app/ui/` : interface React.
 - `scripts/run.mjs` : `start`, `dev` et `build`.

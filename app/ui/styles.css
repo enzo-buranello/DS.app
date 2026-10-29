@@ -406,6 +406,7 @@ code {
   font-weight: var(--ui-fw-medium);
 }
 .panel {
+  min-height: 0;
   background: var(--ui-surface);
   padding: var(--ui-panel-pad);
   overflow: auto;
@@ -418,6 +419,7 @@ code {
 }
 .canvas {
   grid-area: canvas;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -445,4 +447,158 @@ code {
   white-space: nowrap;
   direction: rtl;
   text-align: left;
+}
+
+/* --- Panneaux : groupes aérés, sans séparateurs --- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-4);
+}
+.panel-head,
+.group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-1);
+}
+.group-head h3 {
+  color: var(--ui-text-2);
+}
+.item {
+  justify-content: flex-start;
+  font-weight: var(--ui-fw-regular);
+}
+.item[aria-current='true'] {
+  background: var(--ui-active);
+}
+.dot {
+  width: var(--ui-s-3);
+  height: var(--ui-s-3);
+  border-radius: var(--ui-r-pill);
+  border: 1px solid var(--ui-border);
+}
+.danger {
+  color: var(--ui-danger);
+  align-self: flex-start;
+}
+.row.end {
+  justify-content: flex-end;
+}
+.row input:not([type='color']) {
+  flex: 1;
+}
+
+/* --- Canevas : planche du design system et barre IA --- */
+.canvas {
+  display: flex;
+  flex-direction: column;
+}
+.board {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-8);
+  padding: var(--ui-s-8);
+  background: var(--c-background, var(--ui-surface));
+  color: var(--c-text, var(--ui-text));
+}
+.board.empty {
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+.board-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-3);
+}
+.board-group h3 {
+  color: inherit;
+  opacity: 0.6;
+}
+.board-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-s-4);
+}
+.board-item {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ui-s-2);
+  height: auto;
+  padding: var(--ui-s-3);
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font-weight: var(--ui-fw-regular);
+  white-space: normal;
+}
+.board-item:hover {
+  background: transparent;
+  border-color: var(--ui-border);
+}
+.board-item[aria-current='true'] {
+  border-color: currentColor;
+}
+.board-items.spacing .board-item {
+  max-width: 100%;
+}
+.board-label {
+  font-family: var(--ui-font);
+  font-size: var(--ui-fs-caption);
+  opacity: 0.6;
+}
+.swatch,
+.corner,
+.lift {
+  display: block;
+  width: var(--ui-s-10);
+  height: var(--ui-s-10);
+}
+.swatch {
+  border-radius: var(--ui-r-control);
+  border: 1px solid var(--ui-border);
+}
+.corner {
+  border: 2px solid currentColor;
+}
+.lift {
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+}
+.bar {
+  display: block;
+  max-width: 100%;
+  height: var(--ui-s-2);
+  min-width: 1px;
+  background: currentColor;
+}
+.prompt-bar {
+  display: flex;
+  gap: var(--ui-s-2);
+  align-items: center;
+  margin: var(--ui-s-3);
+  padding: var(--ui-s-2);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-item);
+  box-shadow: var(--ui-shadow-pop);
+}
+.prompt-bar input {
+  flex: 1;
+  border-color: transparent;
+}
+.prompt-bar input.error::placeholder {
+  color: var(--ui-danger);
+}
+.prompt-status {
+  flex: 1;
+  padding: 0 var(--ui-s-2);
+  color: var(--ui-text-2);
 }
