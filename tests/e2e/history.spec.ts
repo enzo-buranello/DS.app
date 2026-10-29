@@ -85,12 +85,44 @@ test('IA par portée, historique regroupé, annuler et restaurer', async () => {
   await page.getByRole('button', { name: 'Annuler' }).click();
   await expect.poll(async () => (await shape())?.background).toBe('#d9d9d9');
   await expect.poll(async () => (await entries())[0].label).toBe(undefined);
+  // Une image jointe accompagne l'instruction et reste dans l'historique.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  await page
+    .getByLabel('Images', { exact: true })
+    .setInputFiles({ name: 'ref.png', mimeType: 'image/png', buffer: png });
+  await expect(page.locator('.prompt-images li')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Retirer l’image' }).click();
+  await expect(page.locator('.prompt-images li')).toHaveCount(0);
+  await page
+    .getByLabel('Images', { exact: true })
+    .setInputFiles({ name: 'ref.png', mimeType: 'image/png', buffer: png });
   await ask('Rends-le primaire');
   await page.getByRole('button', { name: 'Garder' }).click();
   await expect.poll(async () => (await shape())?.background).toBe('primary');
   await expect
     .poll(async () => [(await entries())[0].label, (await entries())[0].scope])
     .toEqual(['Rends-le primaire', 'element']);
+  expect((await entries())[0].images).toHaveLength(1);
+  await page.getByRole('button', { name: 'Historique' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Historique' }).locator('.thumbs img'),
+  ).toHaveCount(1);
+  await page.getByRole('button', { name: 'Historique' }).click();
+
+  // Mode test : la page seule, rien de sélectionnable ; Échap revient.
+  await page.getByRole('button', { name: 'Tester' }).click();
+  const test = page.getByRole('dialog', { name: 'Test' });
+  await expect(test).toBeVisible();
+  await expect(test.locator('[data-node]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(test).toBeHidden();
+  await expect(page.locator('.sel-tag')).toHaveText('Rectangle');
+  await page.getByRole('button', { name: 'Tester' }).click();
+  await page.getByRole('button', { name: 'Quitter' }).click();
+  await expect(test).toBeHidden();
 
   // Restaurer : retour à l'état du design system généré, nouvelle entrée.
   await page.getByRole('button', { name: 'Historique' }).click();

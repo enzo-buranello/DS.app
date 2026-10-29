@@ -1,0 +1,915 @@
+{
+  "found": true,
+  "design": {
+    "foundations": {
+      "colors": {
+        "background": {
+          "name": "Fond de page",
+          "light": "#faf6f0",
+          "dark": "#1c1714"
+        },
+        "surface": {
+          "name": "Surface",
+          "light": "#ffffff",
+          "dark": "#26201b"
+        },
+        "surface-alt": {
+          "name": "Surface alternative",
+          "light": "#f3ebe0",
+          "dark": "#2f2721"
+        },
+        "text": {
+          "name": "Texte",
+          "light": "#2b211b",
+          "dark": "#f3ece4"
+        },
+        "text-muted": {
+          "name": "Texte secondaire",
+          "light": "#6b5d52",
+          "dark": "#b8aa9c"
+        },
+        "primary": {
+          "name": "Croûte (primaire)",
+          "light": "#9a4a1f",
+          "dark": "#e0915e"
+        },
+        "primary-hover": {
+          "name": "Primaire survol",
+          "light": "#7f3c18",
+          "dark": "#eaa77a"
+        },
+        "on-primary": {
+          "name": "Texte sur primaire",
+          "light": "#ffffff",
+          "dark": "#1c1714"
+        },
+        "secondary": {
+          "name": "Blé (secondaire)",
+          "light": "#ecdcc0",
+          "dark": "#3d3229"
+        },
+        "on-secondary": {
+          "name": "Texte sur secondaire",
+          "light": "#2b211b",
+          "dark": "#f3ece4"
+        },
+        "border": {
+          "name": "Bordure",
+          "light": "#e3d6c5",
+          "dark": "#3d3229"
+        },
+        "border-strong": {
+          "name": "Bordure forte",
+          "light": "#c9b49b",
+          "dark": "#5a4a3d"
+        },
+        "success": {
+          "name": "Succès",
+          "light": "#4f6b34",
+          "dark": "#9cbf7a"
+        },
+        "danger": {
+          "name": "Erreur",
+          "light": "#a8322a",
+          "dark": "#f08b80"
+        },
+        "disabled": {
+          "name": "Désactivé",
+          "light": "#e9e1d6",
+          "dark": "#2f2721"
+        },
+        "text-disabled": {
+          "name": "Texte désactivé",
+          "light": "#8a7d71",
+          "dark": "#7d7064"
+        },
+        "shadow": {
+          "name": "Ombre",
+          "light": "#2b211b1f",
+          "dark": "#00000066"
+        }
+      },
+      "fonts": {
+        "display": {
+          "name": "Display",
+          "family": "Fraunces",
+          "size": 48,
+          "weight": 600,
+          "lineHeight": 1.1
+        },
+        "heading-1": {
+          "name": "Titre 1",
+          "family": "Fraunces",
+          "size": 32,
+          "weight": 600,
+          "lineHeight": 1.2
+        },
+        "heading-2": {
+          "name": "Titre 2",
+          "family": "Fraunces",
+          "size": 24,
+          "weight": 600,
+          "lineHeight": 1.3
+        },
+        "heading-3": {
+          "name": "Titre 3",
+          "family": "Fraunces",
+          "size": 20,
+          "weight": 600,
+          "lineHeight": 1.3
+        },
+        "body": {
+          "name": "Corps",
+          "family": "Inter",
+          "size": 16,
+          "weight": 400,
+          "lineHeight": 1.6
+        },
+        "body-strong": {
+          "name": "Corps fort",
+          "family": "Inter",
+          "size": 16,
+          "weight": 600,
+          "lineHeight": 1.6
+        },
+        "small": {
+          "name": "Petit",
+          "family": "Inter",
+          "size": 14,
+          "weight": 400,
+          "lineHeight": 1.5
+        },
+        "label": {
+          "name": "Label",
+          "family": "Inter",
+          "size": 14,
+          "weight": 600,
+          "lineHeight": 1.2
+        },
+        "caption": {
+          "name": "Légende",
+          "family": "Inter",
+          "size": 12,
+          "weight": 500,
+          "lineHeight": 1.4
+        }
+      },
+      "spacing": {
+        "space-1": {
+          "name": "4",
+          "value": 4
+        },
+        "space-2": {
+          "name": "8",
+          "value": 8
+        },
+        "space-3": {
+          "name": "12",
+          "value": 12
+        },
+        "space-4": {
+          "name": "16",
+          "value": 16
+        },
+        "space-5": {
+          "name": "24",
+          "value": 24
+        },
+        "space-6": {
+          "name": "32",
+          "value": 32
+        },
+        "space-7": {
+          "name": "48",
+          "value": 48
+        },
+        "space-8": {
+          "name": "64",
+          "value": 64
+        },
+        "content-sm": {
+          "name": "Largeur étroite",
+          "value": 360
+        },
+        "content-md": {
+          "name": "Largeur moyenne",
+          "value": 640
+        },
+        "content-lg": {
+          "name": "Largeur large",
+          "value": 960
+        }
+      },
+      "radius": {
+        "radius-sm": {
+          "name": "Petit",
+          "value": 4
+        },
+        "radius-md": {
+          "name": "Moyen",
+          "value": 8
+        },
+        "radius-lg": {
+          "name": "Grand",
+          "value": 16
+        },
+        "radius-full": {
+          "name": "Pilule",
+          "value": 999
+        }
+      },
+      "shadows": {
+        "shadow-sm": {
+          "name": "Légère",
+          "x": 0,
+          "y": 1,
+          "blur": 3,
+          "color": "shadow"
+        },
+        "shadow-md": {
+          "name": "Moyenne",
+          "x": 0,
+          "y": 4,
+          "blur": 12,
+          "color": "shadow"
+        },
+        "shadow-lg": {
+          "name": "Forte",
+          "x": 0,
+          "y": 12,
+          "blur": 32,
+          "color": "shadow"
+        }
+      }
+    },
+    "components": {
+      "button": {
+        "name": "Bouton",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Bouton",
+          "style": {
+            "desktop": {
+              "direction": "row",
+              "gap": "space-2",
+              "align": "center",
+              "justify": "center",
+              "width": "hug",
+              "padding": "space-3",
+              "background": "primary",
+              "radius": "radius-md"
+            },
+            "mobile": {
+              "width": "fill"
+            }
+          },
+          "children": [
+            {
+              "id": "label",
+              "kind": "text",
+              "name": "Libellé",
+              "style": {
+                "desktop": {
+                  "color": "on-primary",
+                  "font": "label"
+                }
+              },
+              "text": "Commander"
+            }
+          ]
+        },
+        "states": {
+          "hover": {
+            "root": {
+              "background": "primary-hover",
+              "shadow": "shadow-sm"
+            }
+          },
+          "active": {
+            "root": {
+              "background": "primary-hover"
+            }
+          },
+          "disabled": {
+            "root": {
+              "background": "disabled"
+            },
+            "label": {
+              "color": "text-disabled"
+            }
+          }
+        }
+      },
+      "button-secondary": {
+        "name": "Bouton secondaire",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Bouton secondaire",
+          "style": {
+            "desktop": {
+              "direction": "row",
+              "gap": "space-2",
+              "align": "center",
+              "justify": "center",
+              "width": "hug",
+              "padding": "space-3",
+              "background": "surface",
+              "border": "border-strong",
+              "radius": "radius-md"
+            },
+            "mobile": {
+              "width": "fill"
+            }
+          },
+          "children": [
+            {
+              "id": "label",
+              "kind": "text",
+              "name": "Libellé",
+              "style": {
+                "desktop": {
+                  "color": "text",
+                  "font": "label"
+                }
+              },
+              "text": "Voir la carte"
+            }
+          ]
+        },
+        "states": {
+          "hover": {
+            "root": {
+              "background": "surface-alt"
+            }
+          },
+          "active": {
+            "root": {
+              "background": "secondary"
+            }
+          },
+          "disabled": {
+            "root": {
+              "background": "disabled",
+              "border": "border"
+            },
+            "label": {
+              "color": "text-disabled"
+            }
+          }
+        }
+      },
+      "input": {
+        "name": "Champ",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Champ",
+          "style": {
+            "desktop": {
+              "direction": "column",
+              "gap": "space-2",
+              "width": "fill"
+            }
+          },
+          "children": [
+            {
+              "id": "label",
+              "kind": "text",
+              "name": "Label",
+              "style": {
+                "desktop": {
+                  "color": "text",
+                  "font": "label"
+                }
+              },
+              "text": "Votre nom"
+            },
+            {
+              "id": "field",
+              "kind": "box",
+              "name": "Zone de saisie",
+              "style": {
+                "desktop": {
+                  "direction": "row",
+                  "align": "center",
+                  "width": "fill",
+                  "padding": "space-3",
+                  "background": "surface",
+                  "border": "border-strong",
+                  "radius": "radius-md"
+                }
+              },
+              "children": [
+                {
+                  "id": "value",
+                  "kind": "text",
+                  "name": "Placeholder",
+                  "style": {
+                    "desktop": {
+                      "color": "text-muted",
+                      "font": "body"
+                    }
+                  },
+                  "text": "Marie Dupont"
+                }
+              ]
+            },
+            {
+              "id": "helper",
+              "kind": "text",
+              "name": "Aide",
+              "style": {
+                "desktop": {
+                  "color": "text-muted",
+                  "font": "caption"
+                }
+              },
+              "text": "Pour retirer votre commande en boutique."
+            }
+          ]
+        },
+        "states": {
+          "hover": {
+            "field": {
+              "border": "primary"
+            }
+          },
+          "active": {
+            "field": {
+              "border": "primary",
+              "shadow": "shadow-sm"
+            }
+          },
+          "disabled": {
+            "field": {
+              "background": "disabled",
+              "border": "border"
+            },
+            "value": {
+              "color": "text-disabled"
+            },
+            "label": {
+              "color": "text-disabled"
+            }
+          }
+        }
+      },
+      "badge": {
+        "name": "Badge",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Badge",
+          "style": {
+            "desktop": {
+              "direction": "row",
+              "align": "center",
+              "width": "hug",
+              "padding": "space-1",
+              "background": "secondary",
+              "radius": "radius-full"
+            }
+          },
+          "children": [
+            {
+              "id": "label",
+              "kind": "text",
+              "name": "Libellé",
+              "style": {
+                "desktop": {
+                  "color": "on-secondary",
+                  "font": "caption"
+                }
+              },
+              "text": "Au levain"
+            }
+          ]
+        },
+        "states": {}
+      },
+      "card": {
+        "name": "Carte",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Carte",
+          "style": {
+            "desktop": {
+              "direction": "column",
+              "gap": "space-3",
+              "width": "fill",
+              "padding": "space-5",
+              "background": "surface",
+              "border": "border",
+              "radius": "radius-lg",
+              "shadow": "shadow-sm"
+            },
+            "mobile": {
+              "padding": "space-4"
+            }
+          },
+          "children": [
+            {
+              "id": "title",
+              "kind": "text",
+              "name": "Titre",
+              "style": {
+                "desktop": {
+                  "color": "text",
+                  "font": "heading-3"
+                }
+              },
+              "text": "Notre savoir-faire"
+            },
+            {
+              "id": "body",
+              "kind": "text",
+              "name": "Texte",
+              "style": {
+                "desktop": {
+                  "color": "text-muted",
+                  "font": "body"
+                }
+              },
+              "text": "Des pains pétris à la main chaque matin, avec des farines locales et un levain naturel."
+            },
+            {
+              "id": "action",
+              "kind": "component",
+              "name": "Action",
+              "component": "button-secondary"
+            }
+          ]
+        },
+        "states": {
+          "hover": {
+            "root": {
+              "shadow": "shadow-md"
+            }
+          }
+        }
+      },
+      "product-card": {
+        "name": "Carte produit",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Carte produit",
+          "style": {
+            "desktop": {
+              "direction": "column",
+              "width": "fill",
+              "background": "surface",
+              "border": "border",
+              "radius": "radius-lg",
+              "shadow": "shadow-sm"
+            }
+          },
+          "children": [
+            {
+              "id": "photo",
+              "kind": "image",
+              "name": "Photo",
+              "style": {
+                "desktop": {
+                  "width": "fill",
+                  "radius": "radius-lg"
+                }
+              },
+              "src": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800"
+            },
+            {
+              "id": "content",
+              "kind": "box",
+              "name": "Contenu",
+              "style": {
+                "desktop": {
+                  "direction": "column",
+                  "gap": "space-3",
+                  "width": "fill",
+                  "padding": "space-5"
+                },
+                "mobile": {
+                  "padding": "space-4"
+                }
+              },
+              "children": [
+                {
+                  "id": "tag",
+                  "kind": "component",
+                  "name": "Badge",
+                  "component": "badge"
+                },
+                {
+                  "id": "name",
+                  "kind": "text",
+                  "name": "Nom",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "heading-3"
+                    }
+                  },
+                  "text": "Pain de campagne"
+                },
+                {
+                  "id": "description",
+                  "kind": "text",
+                  "name": "Description",
+                  "style": {
+                    "desktop": {
+                      "color": "text-muted",
+                      "font": "small"
+                    }
+                  },
+                  "text": "Croûte épaisse, mie alvéolée, levain naturel. 800 g."
+                },
+                {
+                  "id": "footer",
+                  "kind": "box",
+                  "name": "Pied",
+                  "style": {
+                    "desktop": {
+                      "direction": "row",
+                      "gap": "space-3",
+                      "align": "center",
+                      "justify": "between",
+                      "width": "fill"
+                    }
+                  },
+                  "children": [
+                    {
+                      "id": "price",
+                      "kind": "text",
+                      "name": "Prix",
+                      "style": {
+                        "desktop": {
+                          "color": "primary",
+                          "font": "body-strong"
+                        }
+                      },
+                      "text": "4,80 €"
+                    },
+                    {
+                      "id": "add",
+                      "kind": "component",
+                      "name": "Ajouter",
+                      "component": "button"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "states": {
+          "hover": {
+            "root": {
+              "shadow": "shadow-md"
+            }
+          }
+        }
+      },
+      "navbar": {
+        "name": "Barre de navigation",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Navigation",
+          "style": {
+            "desktop": {
+              "direction": "row",
+              "gap": "space-5",
+              "align": "center",
+              "justify": "between",
+              "width": "fill",
+              "padding": "space-4",
+              "background": "background",
+              "border": "border"
+            },
+            "mobile": {
+              "padding": "space-3"
+            }
+          },
+          "children": [
+            {
+              "id": "logo",
+              "kind": "text",
+              "name": "Logo",
+              "style": {
+                "desktop": {
+                  "color": "text",
+                  "font": "heading-2"
+                },
+                "mobile": {
+                  "font": "heading-3"
+                }
+              },
+              "text": "Maison Levain"
+            },
+            {
+              "id": "links",
+              "kind": "box",
+              "name": "Liens",
+              "style": {
+                "desktop": {
+                  "direction": "row",
+                  "gap": "space-5",
+                  "align": "center"
+                },
+                "mobile": {
+                  "hidden": true
+                }
+              },
+              "children": [
+                {
+                  "id": "link-1",
+                  "kind": "text",
+                  "name": "Lien pains",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "label"
+                    }
+                  },
+                  "text": "Nos pains"
+                },
+                {
+                  "id": "link-2",
+                  "kind": "text",
+                  "name": "Lien pâtisseries",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "label"
+                    }
+                  },
+                  "text": "Pâtisseries"
+                },
+                {
+                  "id": "link-3",
+                  "kind": "text",
+                  "name": "Lien boutique",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "label"
+                    }
+                  },
+                  "text": "La boutique"
+                }
+              ]
+            },
+            {
+              "id": "cta",
+              "kind": "component",
+              "name": "Commander",
+              "component": "button"
+            }
+          ]
+        },
+        "states": {}
+      },
+      "footer": {
+        "name": "Pied de page",
+        "root": {
+          "id": "root",
+          "kind": "box",
+          "name": "Pied de page",
+          "style": {
+            "desktop": {
+              "direction": "row",
+              "gap": "space-6",
+              "align": "start",
+              "justify": "between",
+              "width": "fill",
+              "padding": "space-7",
+              "background": "surface-alt"
+            },
+            "mobile": {
+              "direction": "column",
+              "gap": "space-5",
+              "padding": "space-5"
+            }
+          },
+          "children": [
+            {
+              "id": "brand",
+              "kind": "box",
+              "name": "Marque",
+              "style": {
+                "desktop": {
+                  "direction": "column",
+                  "gap": "space-2"
+                }
+              },
+              "children": [
+                {
+                  "id": "name",
+                  "kind": "text",
+                  "name": "Nom",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "heading-3"
+                    }
+                  },
+                  "text": "Maison Levain"
+                },
+                {
+                  "id": "tagline",
+                  "kind": "text",
+                  "name": "Accroche",
+                  "style": {
+                    "desktop": {
+                      "color": "text-muted",
+                      "font": "small"
+                    }
+                  },
+                  "text": "Boulangerie artisanale depuis 1987."
+                }
+              ]
+            },
+            {
+              "id": "hours",
+              "kind": "box",
+              "name": "Horaires",
+              "style": {
+                "desktop": {
+                  "direction": "column",
+                  "gap": "space-2"
+                }
+              },
+              "children": [
+                {
+                  "id": "hours-title",
+                  "kind": "text",
+                  "name": "Titre horaires",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "label"
+                    }
+                  },
+                  "text": "Horaires"
+                },
+                {
+                  "id": "hours-text",
+                  "kind": "text",
+                  "name": "Texte horaires",
+                  "style": {
+                    "desktop": {
+                      "color": "text-muted",
+                      "font": "small"
+                    }
+                  },
+                  "text": "Mar – Sam : 7h – 19h30\nDim : 7h – 13h"
+                }
+              ]
+            },
+            {
+              "id": "address",
+              "kind": "box",
+              "name": "Adresse",
+              "style": {
+                "desktop": {
+                  "direction": "column",
+                  "gap": "space-2"
+                }
+              },
+              "children": [
+                {
+                  "id": "address-title",
+                  "kind": "text",
+                  "name": "Titre adresse",
+                  "style": {
+                    "desktop": {
+                      "color": "text",
+                      "font": "label"
+                    }
+                  },
+                  "text": "Nous trouver"
+                },
+                {
+                  "id": "address-text",
+                  "kind": "text",
+                  "name": "Texte adresse",
+                  "style": {
+                    "desktop": {
+                      "color": "text-muted",
+                      "font": "small"
+                    }
+                  },
+                  "text": "12 rue du Four, 69001 Lyon"
+                }
+              ]
+            }
+          ]
+        },
+        "states": {}
+      }
+    }
+  }
+}

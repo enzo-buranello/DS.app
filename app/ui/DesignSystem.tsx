@@ -218,68 +218,74 @@ function NavFolder(
   );
 }
 
-export type FigmaSource = { url?: string; token?: string; variables?: string };
+// Import Figma : un lien, rien d'autre. Sans connexion, un seul bouton.
 export function FigmaDialog(props: {
   ref: React.Ref<HTMLDialogElement>;
   project: Project;
-  onSubmit: (s: FigmaSource) => void;
+  onSubmit: (url: string) => void;
 }) {
-  const [saved, setSaved] = useState(false);
-  useEffect(() => void window.studio.hasFigmaToken().then(setSaved), []);
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const check = () => void window.studio.figmaConnected().then(setConnected);
+  useEffect(check, []);
   const key = props.project.figma?.fileKey;
+  const close = (e: React.MouseEvent<HTMLElement>) =>
+    e.currentTarget.closest('dialog')?.close();
   return (
-    <dialog ref={props.ref} className="dialog">
-      <form
-        className="dialog-body"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const form = e.currentTarget;
-          const d = new FormData(form);
-          const file = d.get('variables') as File | null;
-          const s: FigmaSource = {
-            url: (d.get('url') as string).trim() || undefined,
-            token: (d.get('token') as string).trim() || undefined,
-            variables: file?.size ? await file.text() : undefined,
-          };
-          if (s.url || s.variables) {
-            form.closest('dialog')?.close();
-            props.onSubmit(s);
-          }
-        }}
-      >
-        <h2>Figma</h2>
-        <label className="field">
-          Lien
-          <input
-            name="url"
-            defaultValue={key && `https://www.figma.com/design/${key}`}
-          />
-        </label>
-        <label className="field">
-          Token
-          <input
-            name="token"
-            type="password"
-            placeholder={saved ? 'Enregistré' : undefined}
-          />
-        </label>
-        <label className="field">
-          Variables
-          <input name="variables" type="file" accept=".json,application/json" />
-        </label>
-        <div className="row end">
-          <button
-            type="button"
-            className="ghost"
-            onClick={(e) => e.currentTarget.closest('dialog')?.close()}
-          >
-            Annuler
-          </button>
-          <button className="studio-primary">
-            {key ? 'Réimporter' : 'Importer'}
-          </button>
+    <dialog
+      ref={props.ref}
+      className="dialog"
+      onToggle={(e) => e.newState === 'open' && check()}
+    >
+      {connected === false ? (
+        <div className="dialog-body">
+          <h2>Figma</h2>
+          <div className="row end">
+            <button type="button" className="ghost" onClick={close}>
+              Annuler
+            </button>
+            <button
+              className="studio-primary"
+              disabled={waiting}
+              onClick={async () => {
+                setWaiting(true);
+                setConnected(await window.studio.figmaConnect());
+                setWaiting(false);
+              }}
+            >
+              <FigmaLogo /> {waiting ? 'En attente' : 'Connecter Figma'}
+            </button>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form
+          className="dialog-body"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const url = (
+              new FormData(e.currentTarget).get('url') as string
+            ).trim();
+            if (!url) return;
+            e.currentTarget.closest('dialog')?.close();
+            props.onSubmit(url);
+          }}
+        >
+          <h2>Figma</h2>
+          <label className="field">
+            Lien Figma
+            <input
+              name="url"
+              defaultValue={key && `https://www.figma.com/design/${key}`}
+            />
+          </label>
+          <div className="row end">
+            <button type="button" className="ghost" onClick={close}>
+              Annuler
+            </button>
+            <button className="studio-primary">Importer</button>
+          </div>
+        </form>
+      )}
     </dialog>
   );
 }
@@ -573,6 +579,7 @@ function Color(p: {
             if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v) && v !== p.value)
               p.onChange(v);
           }}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
       </div>
     </div>

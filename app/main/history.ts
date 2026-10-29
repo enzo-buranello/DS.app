@@ -36,7 +36,7 @@ export class History {
   async record(
     before: Project | null,
     after: Project,
-    meta: { kind: Entry['kind']; label?: string },
+    meta: Pick<Entry, 'kind' | 'label' | 'images'>,
   ): Promise<Entry> {
     const list = await this.index();
     const change = before

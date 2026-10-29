@@ -92,7 +92,47 @@ test('design system : saisie à la main, IA, annuler puis garder', async () => {
       }),
     )
     .toBe(true);
-  await page.getByRole('button', { name: 'Thème sombre' }).click();
+  await page.getByRole('button', { name: 'Modes' }).click();
+  await page.getByRole('menuitemradio', { name: 'Sombre' }).click();
   await expect(page.locator('.board')).toHaveAttribute('data-theme', 'dark');
+  await app.close();
+});
+
+// Import Figma : un lien, puis directement le design system créé.
+test('import Figma : lien seul, sans relecture, dans l’historique', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'studio-e2e-'));
+  const dir = path.join(root, 'site');
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_PICK_DIRS: dir,
+      STUDIO_FAKE_FIGMA: path.resolve('tests/fixtures/figma.json'),
+    },
+  });
+  const page = await app.firstWindow();
+  const saved = async () =>
+    JSON.parse(await readFile(path.join(dir, '.studio/project.json'), 'utf8'));
+
+  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByLabel('Nom').fill('Boulangerie');
+  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Importer de Figma' }).click();
+  await expect(page.getByLabel('Token')).toHaveCount(0);
+  await page
+    .getByLabel('Lien Figma')
+    .fill('https://www.figma.com/design/AbC123/Maquette?node-id=1-2');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Importer' })
+    .click();
+
+  await expect.poll(async () => (await saved()).figma?.fileKey).toBe('AbC123');
+  expect(Object.keys((await saved()).components).length).toBe(8);
+  await expect(page.getByRole('button', { name: 'Garder' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Bouton', exact: true }),
+  ).toBeVisible();
   await app.close();
 });

@@ -3,8 +3,9 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-// L'agent Développement est simulé : il note les changements reçus.
-test('code : cibles, génération incrémentale, état', async () => {
+// L'agent Développement est simulé : il note les changements reçus et écrit
+// une page HTML pour l'aperçu.
+test('code : langage, génération incrémentale, aperçu, retouche ciblée', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'studio-e2e-'));
   const dir = path.join(root, 'site');
   const app = await electron.launch({
@@ -18,10 +19,8 @@ test('code : cibles, génération incrémentale, état', async () => {
     },
   });
   const page = await app.firstWindow();
-  const changes = async (t: string) =>
-    JSON.parse(
-      await readFile(path.join(dir, 'code', t, 'GENERATED.json'), 'utf8'),
-    );
+  const json = async (t: string, f: string) =>
+    JSON.parse(await readFile(path.join(dir, 'code', t, f), 'utf8'));
   const exists = (f: string) =>
     stat(f).then(
       () => true,
@@ -37,18 +36,17 @@ test('code : cibles, génération incrémentale, état', async () => {
 
   await page.getByRole('button', { name: 'Code' }).click();
   await expect(page.getByRole('button', { name: 'Générer' })).toBeDisabled();
-  await page.getByLabel('React + Tailwind').check();
-  await page.getByLabel('HTML/CSS').check();
-  await expect(page.locator('.targets li')).toHaveCount(2);
-  await expect(page.locator('.targets')).toContainText('Jamais généré');
+  await page.getByLabel('Langage').selectOption({ label: 'React + Tailwind' });
+  await expect(page.getByText('Jamais généré')).toBeVisible();
 
-  // Première génération : tout, dans l'ordre.
+  // Première génération : tout, dans l'ordre ; le fichier écrit est marqué.
   await page.getByRole('button', { name: 'Générer' }).click();
-  await expect(page.locator('.targets')).toContainText(' fichier');
-  const first = await changes('react');
+  const tree = page.getByRole('list', { name: 'Fichiers' });
+  await expect(tree.getByRole('button', { name: /GENERATED/ })).toBeVisible();
+  await expect(tree.getByLabel('Modifié')).toHaveCount(1);
+  const first = await json('react', 'GENERATED.json');
   expect(first.tokens.changed).toEqual(['all']);
   expect(first.components.changed).toContain('button');
-  expect(await exists(path.join(dir, 'code/html/GENERATED.json'))).toBe(true);
 
   // Rien n'a changé : l'agent n'est pas appelé.
   await rm(path.join(dir, 'code/react/GENERATED.json'));
@@ -64,9 +62,33 @@ test('code : cibles, génération incrémentale, état', async () => {
   await expect
     .poll(() => exists(path.join(dir, 'code/react/GENERATED.json')))
     .toBe(true);
-  const next = await changes('react');
+  const next = await json('react', 'GENERATED.json');
   expect(next.pages.changed).toEqual(['page-1']);
   expect(next.tokens.changed).toEqual([]);
-  expect(next.components.changed).toEqual([]);
+
+  // HTML/CSS : aperçu servi en local, au centre.
+  await page.getByLabel('Langage').selectOption({ label: 'HTML/CSS' });
+  await page.getByRole('button', { name: 'Générer' }).click();
+  const preview = page.frameLocator('iframe.preview');
+  await expect(preview.locator('h1')).toHaveText('Accueil');
+
+  // Lecture d'un fichier, Échap revient à l'aperçu.
+  await tree.getByRole('button', { name: 'index.html' }).click();
+  await expect(page.locator('.code-view')).toContainText('<h1>Accueil</h1>');
+  await page.keyboard.press('Escape');
+  await expect(preview.locator('h1')).toBeVisible();
+
+  // Ciblage : un clic dans l'aperçu vise l'élément, la retouche ne vaut que pour lui.
+  const bar = page.getByLabel('Instruction');
+  await preview.locator('h1').click();
+  await expect(bar).toHaveAttribute('placeholder', 'Modifier « Accueil »');
+  await bar.fill('Titre court');
+  await bar.press('Enter');
+  await expect(preview.locator('h1')).toHaveText('Titre court');
+  const edit = await json('html', 'EDIT.json');
+  expect(edit.scope.selector).toBe('h1');
+  await page.getByRole('button', { name: 'Annuler' }).click();
+  await expect(preview.locator('h1')).toHaveText('Accueil');
+  expect(await exists(path.join(dir, 'code/html/EDIT.json'))).toBe(false);
   await app.close();
 });

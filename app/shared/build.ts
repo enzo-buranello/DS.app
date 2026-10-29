@@ -57,5 +57,27 @@ export type Target = keyof typeof targetDirs;
 
 /** État de la dernière génération, par cible (.studio/build.json). */
 export type BuildState = Partial<
-  Record<Target, { at: string; ok: boolean; hashes?: Hashes; files?: number }>
+  Record<
+    Target,
+    {
+      at: string;
+      ok: boolean;
+      hashes?: Hashes;
+      files?: number;
+      /** Fichiers créés ou modifiés lors du dernier passage de l'agent. */
+      touched?: string[];
+    }
+  >
 >;
+
+/** Élément visé dans l'aperçu, ou fichier (SwiftUI). */
+export type CodeScope = {
+  selector?: string;
+  html?: string;
+  text?: string;
+  file?: string;
+};
+/** Aperçu : page web servie en local, ou capture du simulateur. */
+export type Preview = { url: string } | { image: string };
+/** Fichier en cours d'écriture par l'agent ; null : il a fini. */
+export type Activity = { file: string | null };

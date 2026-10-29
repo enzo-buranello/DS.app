@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash } from '@phosphor-icons/react';
+import { Play, Plus, Trash } from '@phosphor-icons/react';
 import { find } from '../shared/nodes.js';
 import {
   slug,
@@ -13,12 +13,14 @@ import {
   Canvas,
   ElementSettings,
   FormatSwitch,
+  formats,
   setStyles,
   Structure,
   type EditorProps,
 } from './Editor.js';
-import type { Theme } from './render.js';
+import { foundationVars, Render, type Theme } from './render.js';
 import { split, target } from '../shared/instances.js';
+import { isAuto, renamePage } from '../shared/rename.js';
 import type { Scope } from '../shared/api.js';
 import { createComponent, renameComponent, type Update } from './components.js';
 
@@ -46,6 +48,8 @@ export function PagesModule(props: {
   const [sel, setSel] = useState('root');
   const [edited, setEdited] = useState('root');
   const [bp, setBp] = useState<Breakpoint>('desktop');
+  // Mode test : page affichée seule ; l'éditeur reste tel quel dessous.
+  const [testing, setTesting] = useState<string | null>(null);
   const pageId =
     current && project.pages[current] ? current : (pages[0]?.[0] ?? null);
   const page = pageId ? project.pages[pageId] : undefined;
@@ -140,6 +144,12 @@ export function PagesModule(props: {
           <>
             <div className="canvas-head">
               <FormatSwitch bp={bp} onChange={setBp} />
+              <button
+                className="ghost test-btn"
+                onClick={() => setTesting(pageId)}
+              >
+                <Play /> Tester
+              </button>
             </div>
             <Canvas {...editor} theme={props.theme} />
           </>
@@ -162,6 +172,17 @@ export function PagesModule(props: {
             );
           })()}
       </main>
+      {testing && project.pages[testing] && (
+        <TestMode
+          project={project}
+          page={testing}
+          bp={bp}
+          theme={props.theme}
+          base={props.path}
+          onPage={setTesting}
+          onExit={() => setTesting(null)}
+        />
+      )}
       <aside className="panel right" aria-label="Paramètres">
         {editor && page && (
           <ElementSettings
@@ -177,8 +198,11 @@ export function PagesModule(props: {
                       defaultValue={page.name}
                       onBlur={(e) => {
                         const name = e.currentTarget.value.trim();
-                        if (name && name !== page.name)
-                          setPage({ ...page, name });
+                        if (name && (name !== page.name || isAuto(pageId!))) {
+                          const out = renamePage(project, pageId!, name);
+                          props.onSave(out.project);
+                          setCurrent(out.id);
+                        }
                       }}
                     />
                     <button
@@ -196,5 +220,54 @@ export function PagesModule(props: {
         )}
       </aside>
     </>
+  );
+}
+
+function TestMode(props: {
+  project: Project;
+  page: string;
+  bp: Breakpoint;
+  theme: Theme;
+  base: string;
+  onPage: (id: string) => void;
+  onExit: () => void;
+}) {
+  // Échap quitte ; aucune touche n'atteint l'éditeur pendant le test.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') props.onExit();
+    };
+    addEventListener('keydown', onKey, true);
+    return () => removeEventListener('keydown', onKey, true);
+  }, [props.onExit]);
+  const { project } = props;
+  const width = formats.find((f) => f.bp === props.bp)!.width;
+  return (
+    <div className="test-mode" role="dialog" aria-label="Test">
+      <button className="ghost test-exit" onClick={props.onExit}>
+        Quitter
+      </button>
+      <div
+        className="test-page"
+        style={{
+          maxWidth: props.bp === 'desktop' ? undefined : width,
+          ...foundationVars(project.foundations, props.theme),
+        }}
+      >
+        <Render
+          node={project.pages[props.page].root}
+          ctx={{
+            project,
+            bp: props.bp,
+            base: props.base,
+            play: (href) => {
+              const id = href.replace(/^\//, '');
+              if (href.startsWith('/') && project.pages[id]) props.onPage(id);
+            },
+          }}
+        />
+      </div>
+    </div>
   );
 }

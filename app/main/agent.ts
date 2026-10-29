@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  type Options,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Scope } from '../shared/api.js';
+import { figmaEnv, figmaServer, figmaTools, type FigmaLink } from './figma.js';
 import { find, update } from '../shared/nodes.js';
 import {
   brokenReferences,
@@ -45,7 +50,50 @@ const jsonSchema = (s: z.ZodType) =>
     unknown
   >;
 
-async function ask(prompt: string, schema: z.ZodType, fake?: string) {
+const media = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+} as const;
+
+/** Instruction accompagnée d'images de référence. */
+async function* withImages(
+  text: string,
+  files: string[],
+): AsyncIterable<SDKUserMessage> {
+  const images = await Promise.all(
+    files.map(async (f) => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: media[f.split('.').pop() as keyof typeof media],
+        data: (await readFile(f)).toString('base64'),
+      },
+    })),
+  );
+  yield {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        ...images,
+        {
+          type: 'text',
+          text: `Images jointes : références visuelles.\n\n${text}`,
+        },
+      ],
+    },
+    parent_tool_use_id: null,
+  };
+}
+
+async function ask(
+  prompt: string | AsyncIterable<SDKUserMessage>,
+  schema: z.ZodType,
+  fake?: string,
+  options: Options = {},
+) {
   if (fake) return schema.parse(JSON.parse(await readFile(fake, 'utf8')));
   for await (const m of query({
     prompt,
@@ -55,12 +103,22 @@ async function ask(prompt: string, schema: z.ZodType, fake?: string) {
       settingSources: [],
       maxTurns: 4,
       outputFormat: { type: 'json_schema', schema: jsonSchema(schema) },
+      ...options,
     },
-  }))
+  })) {
+    // Import Figma : connexion absente ou expirée, rien n'est lu.
+    if (
+      m.type === 'system' &&
+      m.subtype === 'init' &&
+      options.mcpServers?.figma &&
+      m.mcp_servers.find((s) => s.name === 'figma')?.status !== 'connected'
+    )
+      throw new Error('figma:auth');
     if (m.type === 'result') {
       if (m.subtype === 'success') return schema.parse(m.structured_output);
       throw new Error(m.subtype);
     }
+  }
   throw new Error('Aucun résultat');
 }
 
@@ -69,8 +127,10 @@ export async function design(
   project: Project,
   instruction: string,
   scope: Scope = {},
-  source?: unknown,
+  images: string[] = [],
 ): Promise<Project> {
+  const send = (text: string) =>
+    images.length ? withImages(text, images) : text;
   const ds = {
     foundations: project.foundations,
     components: project.components,
@@ -95,7 +155,7 @@ export async function design(
       `Instruction : ${instruction}`,
     ].join('\n\n');
     const out = (await ask(
-      prompt,
+      send(prompt),
       elementSchema,
       process.env.STUDIO_FAKE_NODE,
     )) as {
@@ -124,13 +184,12 @@ export async function design(
     const prompt = [
       `Projet actuel :\n${JSON.stringify({ ...ds, pages: project.pages, collections: project.collections })}`,
       scope.page && `Page ouverte : ${scope.page}`,
-      source && `Import Figma à convertir :\n${JSON.stringify(source)}`,
       `Portée globale. Instruction : ${instruction}`,
     ]
       .filter(Boolean)
       .join('\n\n');
     const out = (await ask(
-      prompt,
+      send(prompt),
       globalSchema,
       process.env.STUDIO_FAKE_AGENT,
     )) as z.infer<typeof globalSchema>;
@@ -146,8 +205,67 @@ export async function design(
   return next;
 }
 
+// Import Figma : l'agent lit le fichier par le MCP de Figma (lecture seule)
+// et renvoie les fondations et les composants. Un réimport met à jour sans
+// doublon ; ce qui n'a pas été renvoyé (ajouts faits dans l'app) est gardé.
+const FIGMA = `${DESIGN}
+
+Import Figma. Tu lis le fichier avec les outils Figma, puis tu crées ou complètes le design system du projet.
+- Lecture légère : commence par create_session avec la clé du fichier. Si un nœud est donné, ne lis que ce nœud (get_metadata, get_variable_defs, get_design_context, get_screenshot). Sinon, get_metadata du fichier, puis seulement les pages qui contiennent des composants ou des styles.
+- Variables et styles définis : convertis-les en fondations. Sinon, déduis-les du design visible : couleurs récurrentes regroupées en neutres, couleurs principales et états (succès, alerte, erreur) ; échelle typographique ; espacements et arrondis récurrents ; ombres.
+- Composants : ceux déclarés (avec leurs variantes d'état) et les motifs réutilisables qui se répètent, même non déclarés. Ils n'utilisent que les tokens créés, aucune valeur libre.
+- Noms clairs en français, sans jargon (« Primaire/500 », « Bouton principal ») ; identifiants courts en anglais.
+- Design system existant : mets à jour les tokens et composants correspondants en gardant leurs identifiants, sans créer de doublon. Renvoie le design system complet.
+- Fichier introuvable, non partagé ou illisible : found = false, rien d'autre.`;
+
+const importSchema = z.object({
+  found: z.boolean(),
+  design: designSchema.optional(),
+});
+
+/** Lit le fichier Figma et renvoie le projet avec son design system. */
+export async function importFigma(
+  project: Project,
+  link: FigmaLink,
+): Promise<Project> {
+  const ds = {
+    foundations: project.foundations,
+    components: project.components,
+  };
+  const prompt = [
+    `Design system actuel :\n${JSON.stringify(ds)}`,
+    `Fichier Figma : ${link.fileKey}`,
+    link.nodeId ? `Nœud visé : ${link.nodeId}` : 'Lien vers le fichier entier.',
+  ].join('\n\n');
+  const out = (await ask(prompt, importSchema, process.env.STUDIO_FAKE_FIGMA, {
+    systemPrompt: FIGMA,
+    maxTurns: 40,
+    mcpServers: figmaServer,
+    allowedTools: figmaTools,
+    permissionMode: 'dontAsk',
+    env: figmaEnv,
+  })) as z.infer<typeof importSchema>;
+  if (!out.found || !out.design) throw new Error('figma:notfound');
+  const f = project.foundations;
+  const d = out.design.foundations;
+  const next = projectSchema.parse({
+    ...project,
+    foundations: {
+      colors: { ...f.colors, ...d.colors },
+      fonts: { ...f.fonts, ...d.fonts },
+      spacing: { ...f.spacing, ...d.spacing },
+      radius: { ...f.radius, ...d.radius },
+      shadows: { ...f.shadows, ...d.shadows },
+    },
+    components: { ...project.components, ...out.design.components },
+    figma: { fileKey: link.fileKey, importedAt: new Date().toISOString() },
+  });
+  if (brokenReferences(next).length) throw new Error('Références invalides');
+  return next;
+}
+
 // Nom proposé pour un composant créé depuis une page : requête courte, sans outil.
-const NAME = `Tu nommes un composant d'interface d'après son contenu. Un nom court en français, 1 à 3 mots, sans guillemets (ex. « Carte produit », « Bouton principal »). Uniquement la sortie structurée.`;
+const NAME = `Tu nommes un composant d'interface d'après son contenu. Un nom court en français, 1 à 3 mots, sans guillemets (ex. « Carte produit », « Bouton principal »). Range-le dans le dossier existant qui convient (« dossiers ») sous la forme « Dossier/Nom », par exemple « Boutons/Principal » ; sinon un nouveau dossier au pluriel (« Navigation/En-tête »). Le nom ne reprend aucun nom de « existants ». Uniquement la sortie structurée.`;
 const nameSchema = z.object({ name: z.string().min(1).max(40) });
 
 export async function suggestName(summary: string): Promise<string> {

@@ -22,6 +22,8 @@ import {
 import { fieldTypes, slug, type Project } from '../shared/project.js';
 import { assetUrl } from './render.js';
 
+import { isAuto, renameCollection, renameField } from '../shared/rename.js';
+
 // Module Contenus : collections simples, saisies dans un tableau.
 
 const icons: Record<FieldType, React.ReactNode> = {
@@ -268,13 +270,11 @@ export function ContentModule(props: {
                 defaultValue={selected.name}
                 onBlur={(e) => {
                   const name = e.currentTarget.value.trim();
-                  if (name && name !== selected.name)
-                    setCollection({
-                      ...c,
-                      fields: c.fields.map((f) =>
-                        f.id === selected.id ? { ...f, name } : f,
-                      ),
-                    });
+                  if (name && (name !== selected.name || isAuto(selected.id))) {
+                    const out = renameField(project, cid!, selected.id, name);
+                    props.onSave(out.project);
+                    setField(out.id);
+                  }
                 }}
               />
             </label>
@@ -337,7 +337,11 @@ export function ContentModule(props: {
                   defaultValue={c.name}
                   onBlur={(e) => {
                     const name = e.currentTarget.value.trim();
-                    if (name && name !== c.name) setCollection({ ...c, name });
+                    if (name && (name !== c.name || isAuto(cid!))) {
+                      const out = renameCollection(project, cid!, name);
+                      props.onSave(out.project);
+                      setCurrent(out.id);
+                    }
                   }}
                 />
               </label>

@@ -472,3 +472,48 @@ du quota ; SwiftUI est écrit mais pas compilé ici (Xcode requis).
 Preuves : tests unitaires (empreintes, garde-fous) ; e2e (cibles, première
 génération complète, aucune régénération sans changement, page seule
 régénérée) ; génération réelle HTML/CSS en 107 s, rendue bureau et mobile.
+
+## 2026-10-29 — Import Figma : lien seul, MCP officiel de Figma
+
+Problème : l'import demandait un token, un export JSON des variables, et ne
+lisait que les styles et composants publiés ; un réimport écrasait les ajouts
+faits dans l'app.
+
+Décision : un seul champ « Lien Figma ». Un agent dédié lit le fichier par le
+serveur MCP distant de Figma (`mcp.figma.com/mcp`), outils de lecture
+seulement, ciblé sur la page ou la frame du lien, et déduit les fondations
+d'une simple maquette. L'enregistrement OAuth direct d'un client inconnu est
+refusé par Figma : l'autorisation passe par `mcpAuthenticate` du SDK, donc par
+Claude Code, qui garde la session dans le trousseau du système. Un réimport
+fusionne par identifiant ; ce que l'agent ne renvoie pas est gardé. L'import
+n'a pas de relecture Garder / Annuler (demande explicite) : on arrive sur le
+design system, l'itération « Import Figma » reste restaurable.
+
+Limite connue : `mcpAuthenticate` n'est pas encore dans les types publics du
+SDK.
+
+Preuves : tests unitaires (lien, fusion, fichier introuvable) ; e2e (lien
+seul, pas de relecture, design system créé).
+
+## 2026-10-29 — Rail, Code en direct, images, mode test
+
+- Historique, Modes (thème clair ou sombre de l'aperçu) puis Paramètres en
+  bas du rail ; la barre du haut ne garde que le projet.
+- Code : un seul langage actif (`targets[0]`). Arborescence de
+  `code/<cible>` ; l'agent signale chaque écriture (événement `activity`), le
+  fichier en cours pulse et ses dossiers s'ouvrent ; `build.json` garde les
+  fichiers du dernier passage (`touched`). Aperçu au centre : serveur de dev du
+  projet (statique pour HTML/CSS), script de ciblage injecté par le processus
+  principal (clic = élément, Échap = aucun). La barre retouche le code par
+  l'agent Développement ; les originaux sont gardés pour Annuler. Ces
+  retouches ne passent pas par `project.json` : régénérer un élément modifié
+  dans l'app les écrase.
+- SwiftUI : `swiftc` pour le simulateur iOS, sans projet Xcode, puis capture
+  d'écran. Limites : Xcode requis, ~1 min au premier lancement, image fixe
+  (bouton « Simulateur » pour interagir), ciblage par fichier et non par clic.
+- Images : bouton, glisser-déposer ou collage dans toute barre ; copiées dans
+  `.studio/refs/`, envoyées à l'agent Design en blocs image, lues par l'agent
+  Développement ; l'entrée d'historique les garde.
+- Mode test des pages : couche plein écran au-dessus de l'éditeur resté monté
+  (retour à l'identique) ; liens « /page », états survol et appui ; aucune
+  touche n'atteint l'éditeur. Pas de formulaire : aucun nœud de saisie.

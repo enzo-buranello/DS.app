@@ -8,6 +8,8 @@ export type Entry = {
   label?: string;
   kind: 'ai' | 'manual' | 'restore' | 'create';
   scope: 'element' | 'global';
+  /** Images jointes à l'instruction (« refs/… »). */
+  images?: string[];
   /** Ce qui a changé : sert à regrouper les modifications manuelles. */
   target: string;
   at: string;

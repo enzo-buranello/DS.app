@@ -31,15 +31,14 @@ export function HistoryButton(props: {
   return (
     <div className="history-anchor">
       <button
-        className="icon-btn"
-        aria-label="Historique"
+        className="ghost"
         aria-expanded={open}
         onClick={(e) => {
           e.stopPropagation();
           setOpen(!open);
         }}
       >
-        <ClockCounterClockwise />
+        <ClockCounterClockwise /> Historique
       </button>
       {open && (
         <div
@@ -60,6 +59,17 @@ export function HistoryButton(props: {
                     {e.scope === 'element' ? 'Élément' : 'Global'} ·{' '}
                     {time(e.at)}
                   </span>
+                  {e.images && (
+                    <span className="thumbs">
+                      {e.images.map((src) => (
+                        <img
+                          key={src}
+                          alt=""
+                          src={`studio://asset/${encodeURIComponent(props.path)}/${src}`}
+                        />
+                      ))}
+                    </span>
+                  )}
                 </div>
                 {i > 0 && (
                   <button

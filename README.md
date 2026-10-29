@@ -14,6 +14,11 @@ npm start
 
 `npm run dev` recharge l'interface à chaque modification.
 
+Sur Mac, `npm run build && npm run app` installe `DS-Studio.app` dans
+`~/Applications`, une seule fois : elle se lance depuis le Finder ou le Dock,
+sans terminal, sur le dernier build. Après une modification, `npm run build`
+suffit.
+
 ## Projet
 
 Chaque projet vit dans un dossier choisi par le designer. Tout le projet est

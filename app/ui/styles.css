@@ -409,6 +409,30 @@ code {
   justify-content: flex-start;
   font-weight: var(--ui-fw-regular);
 }
+.rail-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-1);
+}
+.rail-foot > button,
+.rail-foot > div > button {
+  width: 100%;
+}
+.rail-foot hr {
+  border: none;
+  border-top: 1px solid var(--ui-border);
+  margin: var(--ui-s-1) var(--ui-s-2);
+}
+/* Les menus du bas du rail s'ouvrent à sa droite, alignés en bas. */
+.rail-foot .menu,
+.rail-foot .menu.history {
+  top: auto;
+  bottom: 0;
+  left: calc(100% + var(--ui-s-2));
+  right: auto;
+}
+.rail button[aria-expanded='true'],
 .rail button[aria-current='page'] {
   background: var(--ui-active);
   font-weight: var(--ui-fw-medium);
@@ -603,9 +627,63 @@ code {
   border-radius: var(--ui-r-item);
   box-shadow: var(--ui-shadow-pop);
 }
+form.prompt-bar {
+  flex-direction: column;
+  align-items: stretch;
+}
+.prompt-bar[data-over] {
+  border-color: var(--ui-border-control);
+  background: var(--ui-hover);
+}
+.prompt-row {
+  display: flex;
+  gap: var(--ui-s-2);
+  align-items: center;
+}
 .prompt-bar input {
   flex: 1;
   border-color: transparent;
+}
+.prompt-images {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-s-2);
+}
+.prompt-images li {
+  position: relative;
+}
+.prompt-images img,
+.thumbs img {
+  display: block;
+  width: var(--ui-s-10);
+  height: var(--ui-s-10);
+  object-fit: cover;
+  border-radius: var(--ui-r-control);
+  border: 1px solid var(--ui-border);
+}
+.prompt-images .dismiss {
+  position: absolute;
+  top: calc(-1 * var(--ui-s-2));
+  right: calc(-1 * var(--ui-s-2));
+  width: var(--ui-s-5);
+  height: var(--ui-s-5);
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  border-color: var(--ui-border);
+}
+.thumbs {
+  display: flex;
+  gap: var(--ui-s-1);
+  margin-top: var(--ui-s-1);
+}
+.thumbs img {
+  width: var(--ui-s-6);
+  height: var(--ui-s-6);
 }
 .prompt-bar input.error::placeholder {
   color: var(--ui-danger);
@@ -656,9 +734,42 @@ code {
 
 /* --- Éditeur : format, canevas, structure --- */
 .canvas-head {
+  position: relative;
   display: flex;
   justify-content: center;
   padding: var(--ui-s-2);
+}
+.test-btn {
+  position: absolute;
+  right: var(--ui-s-2);
+}
+
+/* --- Mode test : la page seule, sur fond neutre --- */
+.test-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: var(--ui-s-10) var(--ui-s-6);
+  background: var(--ui-bg);
+}
+.test-page {
+  width: 100%;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  min-height: var(--ui-artboard-h);
+  background: var(--c-background, var(--ui-surface));
+  color: var(--c-text, var(--ui-text));
+  box-shadow: var(--ui-shadow-1);
+}
+.test-exit {
+  position: fixed;
+  top: var(--ui-s-2);
+  right: var(--ui-s-3);
+  z-index: 1;
 }
 .segmented {
   display: inline-flex;
@@ -673,8 +784,40 @@ code {
   overflow: auto;
   padding: var(--ui-s-8);
   display: flex;
-  justify-content: center;
+  /* Zoomé plus large que le canevas : on peut encore défiler à gauche. */
+  justify-content: safe center;
   align-items: flex-start;
+}
+/* Pas de sélection de texte en glissant sur le canevas. */
+.stage .artboard {
+  user-select: none;
+}
+.stage-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.stage-wrap > .stage {
+  min-width: 0;
+}
+.zoom-ctl {
+  position: absolute;
+  left: var(--ui-s-3);
+  bottom: var(--ui-s-3);
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s-1);
+  padding: var(--ui-s-1);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-item);
+  box-shadow: var(--ui-shadow-1);
+  z-index: 2;
+}
+.zoom-ctl .ghost {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
 }
 .artboard {
   flex: none;
@@ -762,6 +905,7 @@ code {
 }
 /* Le canevas ne reçoit rien du style de l'interface. */
 .artboard p,
+.test-page p,
 .board p {
   color: inherit;
 }
@@ -772,7 +916,8 @@ code {
 .artboard[data-format='mobile'] {
   --ui-artboard-h: 812px;
 }
-.artboard > [data-node] {
+.artboard > [data-node],
+.test-page > * {
   flex: 1;
 }
 .placeholder {
@@ -1095,6 +1240,15 @@ code {
 }
 
 /* --- Contenus : tableau --- */
+/* Première colonne (le nom) toujours visible quand le tableau défile. */
+.content-table th:first-child,
+.content-table td:first-child {
+  position: sticky;
+  /* Collée au bord de la zone qui défile, marge comprise. */
+  left: calc(-1 * var(--ui-s-6));
+  z-index: 1;
+  background: var(--ui-surface);
+}
 .table-wrap {
   flex: 1;
   min-width: 0;
@@ -1110,7 +1264,8 @@ code {
   border-spacing: 0;
   background: var(--ui-surface);
   border-radius: var(--ui-r-item);
-  overflow: hidden;
+  /* clip et non hidden : la première colonne reste collante. */
+  overflow: clip;
 }
 .content-table th,
 .content-table td {
@@ -1158,39 +1313,93 @@ code {
 }
 
 /* --- Code --- */
-.code-card {
-  margin: var(--ui-s-8) auto;
-  width: min(560px, calc(100% - 2 * var(--ui-s-6)));
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-s-5);
-  padding: var(--ui-s-6);
-  background: var(--ui-surface);
-  border-radius: var(--ui-r-container);
+/* Sans panneau de droite : l'aperçu prend toute la largeur. */
+.code-canvas {
+  grid-column: canvas / right;
 }
-.targets {
+.code-lang select {
+  flex: 1;
+  min-width: 0;
+}
+.tree,
+.tree ul {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+.tree ul {
+  padding-left: var(--ui-s-3);
+}
+.tree-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--ui-s-2);
+  font-weight: var(--ui-fw-regular);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-fs-caption);
+}
+.tree-item .caret {
+  transition: transform var(--ui-duration);
+}
+.tree-item[aria-expanded='true'] .caret {
+  transform: rotate(90deg);
+}
+.tree-item[aria-current='true'] {
+  background: var(--ui-active);
+}
+/* Fichier en cours d'écriture par l'agent. */
+.tree-item[data-writing] {
+  animation: writing 1.2s ease-in-out infinite;
+}
+@keyframes writing {
+  50% {
+    background: var(--ui-active);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-item[data-writing] {
+    animation: none;
+    background: var(--ui-active);
+  }
+}
+.dot.touched {
+  width: var(--ui-s-2);
+  height: var(--ui-s-2);
+  margin-left: auto;
+  flex: none;
+  border: none;
+  background: var(--ui-text-2);
+}
+.preview {
+  flex: 1;
+  border: none;
+  background: var(--ui-surface);
+}
+.code-view {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--ui-surface);
+}
+.code-view .canvas-head {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--ui-border);
+}
+.code-view pre {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  padding: var(--ui-s-4);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-fs-caption);
+}
+.board.sim {
   gap: var(--ui-s-3);
 }
-.targets li {
-  display: flex;
-  align-items: center;
-  gap: var(--ui-s-2);
-}
-.target-name {
-  font-weight: var(--ui-fw-medium);
-}
-.targets li > :last-child {
-  margin-left: auto;
-}
-.code-card .studio-primary {
-  align-self: flex-start;
-}
-.check.target {
-  min-height: var(--ui-control-h);
-  font-size: var(--ui-fs-body);
+.sim-shot {
+  max-height: 100%;
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
 }

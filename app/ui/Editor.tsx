@@ -23,6 +23,7 @@ import {
   ImageSquare,
   ListBullets,
   LinkBreak,
+  Minus,
   Plus,
   Rectangle,
   Square,
@@ -305,7 +306,10 @@ export function Canvas(
   const { root, sel, bp, project } = props;
   const stage = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
+  // Zoom : ajusté à la largeur, ou choisi (pincer, ⌘ + molette, − / +).
+  const [fit, setFit] = useState(1);
+  const [scale, setScale] = useState<number | null>(null);
+  const zoom = scale ?? fit;
   const [rect, setRect] = useState<Rect | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
@@ -316,11 +320,42 @@ export function Canvas(
   useLayoutEffect(() => {
     const el = stage.current!;
     const fit = () =>
-      setZoom(props.component ? 1 : Math.min(1, (el.clientWidth - 64) / width));
+      setFit(props.component ? 1 : Math.min(1, (el.clientWidth - 64) / width));
     const ro = new ResizeObserver(fit);
     ro.observe(el);
+    setScale(null);
     return () => ro.disconnect();
   }, [width, props.component]);
+  const zoomTo = (z: number) =>
+    setScale(Math.min(4, Math.max(0.1, Math.round(z * 100) / 100)));
+  useEffect(() => {
+    const el = stage.current!;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setScale((s) =>
+        Math.min(4, Math.max(0.1, (s ?? fit) * Math.exp(-e.deltaY / 200))),
+      );
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (
+        e.metaKey ||
+        e.ctrlKey ||
+        t.closest('input, textarea, select, dialog')
+      )
+        return;
+      if (e.key === '+' || e.key === '=') zoomTo(zoom * 1.25);
+      else if (e.key === '-') zoomTo(zoom / 1.25);
+      else if (e.key === '0') setScale(null);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    addEventListener('keydown', onKey);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      removeEventListener('keydown', onKey);
+    };
+  });
 
   const nodeEl = (id: string) =>
     board.current?.querySelector(`[data-node="${CSS.escape(id)}"]`) ?? null;
@@ -472,13 +507,16 @@ export function Canvas(
       }
 
       // Parent en flux : emplacement d'insertion d'après le pointeur.
-      const row = layoutOf(parent, bp) === 'row';
+      const layout = layoutOf(parent, bp);
       let index = siblings.findIndex((r) =>
-        row
+        layout === 'row'
           ? p.x < r.x + r.w / 2
-          : p.y < r.y + r.h && (p.y < r.y || p.x < r.x + r.w / 2),
+          : layout === 'grid'
+            ? p.y < r.y + r.h && (p.y < r.y || p.x < r.x + r.w / 2)
+            : p.y < r.y + r.h / 2,
       );
       if (index < 0) index = siblings.length;
+      const row = layout === 'row';
       const ref = siblings[Math.min(index, siblings.length - 1)];
       const after = index >= siblings.length;
       const marker: Line = !ref
@@ -541,76 +579,107 @@ export function Canvas(
   }
 
   return (
-    <div
-      className="stage"
-      ref={stage}
-      onScroll={measure}
-      onPointerDown={(e) => {
-        if (
-          e.button !== 0 ||
-          (e.target as HTMLElement).closest('.handle, .menu')
-        )
-          return;
-        const id = pick(chainAt(e.target as HTMLElement));
-        props.onSelect(id, id === root.id);
-        if (id !== root.id && !split(id)) startDrag(e, id);
-        else if (split(id)) props.onSelect(id, true);
-      }}
-      onDoubleClick={(e) => {
-        // Double-clic : entre dans le conteneur ou l'instance.
-        const chain = chainAt(e.target as HTMLElement);
-        const i = chain.indexOf(sel);
-        if (i >= 0 && chain[i + 1]) props.onSelect(chain[i + 1], true);
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        const id = pick(chainAt(e.target as HTMLElement));
-        props.onSelect(id, true);
-        setMenu({ x: e.clientX, y: e.clientY, id });
-      }}
-    >
+    <div className="stage-wrap">
       <div
-        className={props.component ? 'artboard component' : 'artboard'}
-        ref={board}
-        data-format={bp}
-        style={{
-          width: shown,
-          zoom,
-          ...foundationVars(project.foundations, props.theme),
+        className="stage"
+        ref={stage}
+        onScroll={measure}
+        onPointerDown={(e) => {
+          if (
+            e.button !== 0 ||
+            (e.target as HTMLElement).closest('.handle, .menu')
+          )
+            return;
+          const id = pick(chainAt(e.target as HTMLElement));
+          props.onSelect(id, id === root.id);
+          if (id !== root.id && !split(id)) startDrag(e, id);
+          else if (split(id)) props.onSelect(id, true);
+        }}
+        onDoubleClick={(e) => {
+          // Double-clic : entre dans le conteneur ou l'instance.
+          const chain = chainAt(e.target as HTMLElement);
+          const i = chain.indexOf(sel);
+          if (i >= 0 && chain[i + 1]) props.onSelect(chain[i + 1], true);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const id = pick(chainAt(e.target as HTMLElement));
+          props.onSelect(id, true);
+          setMenu({ x: e.clientX, y: e.clientY, id });
         }}
       >
-        <Render
-          node={root}
-          ctx={{ project, bp, base: props.base, patches: props.patches }}
-        />
+        <div
+          className={props.component ? 'artboard component' : 'artboard'}
+          ref={board}
+          data-format={bp}
+          style={{
+            width: shown,
+            zoom,
+            ...foundationVars(project.foundations, props.theme),
+          }}
+        >
+          <Render
+            node={root}
+            ctx={{ project, bp, base: props.base, patches: props.patches }}
+          />
+        </div>
+        {drag ? (
+          <>
+            {drag.into && <div className="drop-into" style={box(drag.into)} />}
+            <div className="drag-ghost" style={box(drag.ghost)} />
+            {drag.guides.map((g, i) => (
+              <div key={i} className="guide" style={box(g)} />
+            ))}
+            {drag.marker && <div className="marker" style={box(drag.marker)} />}
+          </>
+        ) : (
+          rect && (
+            <div className="sel-box" style={box(rect)}>
+              <span className="sel-tag">
+                {split(sel) && <Diamond size={12} />}
+                {label(target(project, root, sel)?.node ?? root, project)}
+              </span>
+              {sel !== root.id && (
+                <span
+                  className="handle"
+                  aria-label="Redimensionner"
+                  onPointerDown={(e) => resize(e, rect)}
+                />
+              )}
+            </div>
+          )
+        )}
+        <ContextMenu {...props} menu={menu} onClose={() => setMenu(null)} />
       </div>
-      {drag ? (
-        <>
-          {drag.into && <div className="drop-into" style={box(drag.into)} />}
-          <div className="drag-ghost" style={box(drag.ghost)} />
-          {drag.guides.map((g, i) => (
-            <div key={i} className="guide" style={box(g)} />
-          ))}
-          {drag.marker && <div className="marker" style={box(drag.marker)} />}
-        </>
-      ) : (
-        rect && (
-          <div className="sel-box" style={box(rect)}>
-            <span className="sel-tag">
-              {split(sel) && <Diamond size={12} />}
-              {label(target(project, root, sel)?.node ?? root, project)}
-            </span>
-            {sel !== root.id && (
-              <span
-                className="handle"
-                aria-label="Redimensionner"
-                onPointerDown={(e) => resize(e, rect)}
-              />
-            )}
-          </div>
-        )
-      )}
-      <ContextMenu {...props} menu={menu} onClose={() => setMenu(null)} />
+      <div
+        className="zoom-ctl"
+        role="group"
+        aria-label="Zoom"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="icon-btn"
+          aria-label="Zoom arrière"
+          onClick={() => zoomTo(zoom / 1.25)}
+        >
+          <Minus />
+        </button>
+        <button
+          className="ghost"
+          aria-label="Ajuster"
+          title="Ajuster"
+          onClick={() => setScale(null)}
+        >
+          {Math.round(zoom * 100)} %
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Zoom avant"
+          onClick={() => zoomTo(zoom * 1.25)}
+        >
+          <Plus />
+        </button>
+      </div>
     </div>
   );
 }

@@ -25,7 +25,8 @@ test('contenus : collection, tableau, liste et champ liés', async () => {
   await page.getByLabel('Nom').fill('Boulangerie');
   await page.getByRole('button', { name: 'Créer' }).click();
 
-  // Une collection « Produits » : Nom, Prix (nombre), Photo (image).
+  // Une collection « Produits » : Nom, Prix (nombre), Photo (image). Les
+  // identifiants par défaut suivent les noms donnés.
   await page.getByRole('button', { name: 'Contenus' }).click();
   await page
     .getByRole('button', { name: 'Ajouter une collection' })
@@ -52,16 +53,16 @@ test('contenus : collection, tableau, liste et champ liés', async () => {
   }
   await table.locator('tbody tr').first().locator('.cell-image').click();
   await expect
-    .poll(async () => (await saved()).collections['collection-1']?.items)
+    .poll(async () => (await saved()).collections.produits?.items)
     .toMatchObject([
       {
         values: {
           nom: 'Pain de campagne',
-          'champ-2': 4.8,
+          prix: 4.8,
           'champ-3': expect.stringMatching(/^assets\//),
         },
       },
-      { values: { nom: 'Croissant', 'champ-2': 1.4 } },
+      { values: { nom: 'Croissant', prix: 1.4 } },
     ]);
 
   // Une page avec une liste de produits : un élément par produit.
@@ -75,7 +76,7 @@ test('contenus : collection, tableau, liste et champ liés', async () => {
 
   // Le texte du modèle se lie au prix.
   await page.locator('.tree').getByRole('button', { name: 'Texte' }).click();
-  await settings.getByLabel('Champ').selectOption('collection-1:champ-2');
+  await settings.getByLabel('Champ').selectOption('produits:prix');
   await expect(board).toContainText('4,8');
   await expect(board).toContainText('1,4');
 

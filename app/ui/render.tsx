@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { applyOverride, SEP } from '../shared/instances.js';
 import { display, type Value } from '../shared/content.js';
 import type {
@@ -13,6 +13,20 @@ import type {
 // (--c-, --s-, --r-, --sh-, --f-) ; une valeur libre est écrite telle quelle.
 
 export type Theme = 'light' | 'dark';
+
+/** Feuille Google Fonts des familles du projet (hors polices du système). */
+export function fontsHref(f: Foundations) {
+  const families = [
+    ...new Set(Object.values(f.fonts).map((t) => t.family.trim())),
+  ].filter(
+    (n) => n && !/^(system-ui|sans-serif|serif|monospace|Geist)/i.test(n),
+  );
+  if (!families.length) return null;
+  const q = families
+    .map((n) => `${n.replace(/ /g, '+')}:300,400,500,600,700,400i`)
+    .join('|');
+  return `https://fonts.googleapis.com/css?family=${encodeURIComponent(q).replace(/%2B/g, '+')}&display=swap`;
+}
 
 export function foundationVars(f: Foundations, theme: Theme) {
   const vars: Record<string, string> = {};
@@ -136,6 +150,8 @@ type Ctx = {
   instance?: { id: string; overrides?: Node['overrides']; root: string };
   /** Élément de collection affiché par la liste englobante. */
   item?: { collection: string; values: Record<string, Value> };
+  /** Mode test : rien n'est sélectionnable, les liens mènent aux pages. */
+  play?: (href: string) => void;
 };
 
 /** Valeur liée : élément de la liste englobante, sinon premier élément. */
@@ -172,9 +188,19 @@ export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
   const style = css(node, s, ctx.inFree);
   // La racine d'un composant se confond avec son instance.
   const data =
-    ctx.inert || (inst && node.id === inst.root)
+    ctx.inert || ctx.play || (inst && node.id === inst.root)
       ? {}
       : { 'data-node': inst ? `${inst.id}${SEP}${node.id}` : node.id };
+  const go = ctx.play;
+  if (go && node.href) {
+    style.cursor = 'pointer';
+    Object.assign(data, {
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        go(node.href!);
+      },
+    });
+  }
   const child = { ...ctx, depth: depth + 1, inFree: false };
   const bound = boundValue(node, ctx);
   if (node.kind === 'text')
@@ -196,6 +222,8 @@ export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
     );
   if (node.kind === 'component') {
     const c = node.component && ctx.project.components[node.component];
+    if (c && go)
+      return <Live node={node} ctx={ctx} style={style} data={data} />;
     return c ? (
       <div style={style} {...data}>
         <Render
@@ -252,6 +280,39 @@ export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
       {node.children?.map((c) => (
         <Render key={c.id} node={c} ctx={{ ...child, inFree: free }} />
       ))}
+    </div>
+  );
+}
+
+// Instance en mode test : survol et appui appliquent les états du composant.
+function Live(props: {
+  node: Node;
+  ctx: Ctx;
+  style: CSSProperties;
+  data: object;
+}) {
+  const { node, ctx } = props;
+  const c = ctx.project.components[node.component!];
+  const [state, setState] = useState<'hover' | 'active' | null>(null);
+  return (
+    <div
+      style={props.style}
+      {...props.data}
+      onMouseEnter={() => setState('hover')}
+      onMouseLeave={() => setState(null)}
+      onMouseDown={() => setState('active')}
+      onMouseUp={() => setState('hover')}
+    >
+      <Render
+        node={c.root}
+        ctx={{
+          ...ctx,
+          depth: (ctx.depth ?? 0) + 1,
+          inFree: false,
+          patches: state ? c.states[state] : undefined,
+          instance: { id: node.id, overrides: node.overrides, root: c.root.id },
+        }}
+      />
     </div>
   );
 }

@@ -19,6 +19,18 @@ export function renameComponent(p: Project, id: string, name: string): Project {
   };
 }
 
+/** Nom libre parmi les composants : « Nom 2 » si déjà pris. */
+function unique(name: string, p: Project, self: string) {
+  const taken = new Set(
+    Object.entries(p.components)
+      .filter(([k]) => k !== self)
+      .map(([, c]) => c.name.toLowerCase()),
+  );
+  let out = name;
+  for (let i = 2; taken.has(out.toLowerCase()); i++) out = `${name} ${i}`;
+  return out;
+}
+
 const texts = (n: Node): string[] => [
   ...(n.text ? [n.text] : []),
   ...(n.children ?? []).flatMap(texts),
@@ -33,6 +45,11 @@ export function createComponent(
 ) {
   const out = componentize(project, root, id);
   if (!out) return;
+  // Le design system range ses composants en dossiers « Dossier/Nom ».
+  const names = Object.values(project.components).map((x) => x.name);
+  const folders = new Set(
+    names.filter((n) => n.includes('/')).map((n) => n.split('/')[0]),
+  );
   const draft = out.project.components[out.id].name;
   onUpdate(() => embed(out.project, out.root), 'Créer un composant');
   const c = out.project.components[out.id];
@@ -41,12 +58,14 @@ export function createComponent(
       JSON.stringify({
         textes: texts(c.root).slice(0, 12),
         nom: draftName(c.root, project),
+        dossiers: [...folders],
+        existants: [...names],
       }),
     )
     .then((name) =>
       onUpdate((p) =>
         p.components[out.id]?.name === draft
-          ? renameComponent(p, out.id, name)
+          ? renameComponent(p, out.id, unique(name, p, out.id))
           : p,
       ),
     )

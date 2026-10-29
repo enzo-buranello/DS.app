@@ -9,6 +9,7 @@
     "start": "node scripts/run.mjs start",
     "dev": "node scripts/run.mjs dev",
     "build": "node scripts/run.mjs build",
+    "app": "node scripts/install-app.mjs",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "node scripts/run.mjs build && playwright test",

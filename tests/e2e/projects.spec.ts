@@ -30,7 +30,7 @@ test('créer un projet, le renommer, changer de dossier, revenir', async () => {
   );
   expect(saved.name).toBe('Boutique');
 
-  await page.getByRole('button', { name: 'Réglages' }).click();
+  await page.getByRole('button', { name: 'Paramètres' }).click();
   await page.getByLabel('Nom').fill('Atelier');
   await page.getByLabel('Nom').blur();
   await page.getByRole('button', { name: 'Changer' }).click();

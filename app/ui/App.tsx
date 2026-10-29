@@ -7,6 +7,7 @@ import {
   GearSix,
   Moon,
   Palette,
+  SunHorizon,
   Plus,
   SquaresFour,
   Sun,
@@ -14,13 +15,13 @@ import {
 import type { AiResult, Opened, Scope, StudioApi } from '../shared/api.js';
 import { HistoryButton } from './History.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
-import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
+import { DesignModule, FigmaDialog } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
 import { ContentModule } from './Content.js';
 import { CodeModule } from './Code.js';
 import type { Update } from './components.js';
 import { PromptBar, type AiState } from './PromptBar.js';
-import type { Theme } from './render.js';
+import { fontsHref, type Theme } from './render.js';
 
 declare global {
   interface Window {
@@ -183,6 +184,18 @@ function Shell(props: {
   onMove: () => void;
 }) {
   const { project, path } = props.opened;
+  // Les polices du projet s'affichent telles quelles sur le canevas.
+  const fonts = fontsHref(project.foundations);
+  useEffect(() => {
+    document.getElementById('project-fonts')?.remove();
+    if (!fonts) return;
+    const link = Object.assign(document.createElement('link'), {
+      id: 'project-fonts',
+      rel: 'stylesheet',
+      href: fonts,
+    });
+    document.head.append(link);
+  }, [fonts]);
   const [module, setModule] = useState<ModuleId>('design');
   const [menu, setMenu] = useState(false);
   const [theme, setTheme] = useState<Theme>('light');
@@ -214,6 +227,29 @@ function Shell(props: {
       setAi({ status: 'error' });
     }
   }
+  // Import Figma : pas de relecture, on arrive sur le design system créé ;
+  // l'itération reste dans l'historique.
+  async function runImport(url: string) {
+    setAi({ status: 'busy', message: 'Import en cours' });
+    try {
+      await props.onFlush();
+      const out = await api.figmaImport(path, url);
+      props.onReplace(out.project);
+      setModule('design');
+      setAi({ status: 'idle' });
+    } catch (e) {
+      if (String(e).includes('figma:auth')) {
+        setAi({ status: 'idle' });
+        figma.current?.showModal();
+      } else
+        setAi({
+          status: 'error',
+          message: String(e).includes('figma:notfound')
+            ? 'Fichier introuvable ou non partagé'
+            : undefined,
+        });
+    }
+  }
   // Barre IA : la portée vient du module (élément sélectionné ou global).
   const bar = (scope: Scope, target?: string) => (
     <PromptBar
@@ -221,7 +257,9 @@ function Shell(props: {
       placeholder={
         target ? `Modifier « ${target} »` : 'Décrire une modification'
       }
-      onSubmit={(text) => runAi(() => api.design(path, text, scope))}
+      onSubmit={(text, images) =>
+        runAi(() => api.design(path, text, scope, images))
+      }
       onKeep={() => setAi({ status: 'idle' })}
       onUndo={async (entry) => {
         setAi({ status: 'idle' });
@@ -264,31 +302,6 @@ function Shell(props: {
             </div>
           )}
         </div>
-        <div className="row">
-          <HistoryButton
-            path={path}
-            version={project.updatedAt}
-            onRestore={async (id) => {
-              await props.onFlush();
-              props.onReplace(await api.restore(path, id));
-              setAi({ status: 'idle' });
-            }}
-          />
-          <button
-            className="icon-btn"
-            aria-label={theme === 'light' ? 'Thème sombre' : 'Thème clair'}
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-          >
-            {theme === 'light' ? <Moon /> : <Sun />}
-          </button>
-          <button
-            className="icon-btn"
-            aria-label="Réglages"
-            onClick={() => settings.current?.showModal()}
-          >
-            <GearSix />
-          </button>
-        </div>
       </header>
       <nav className="rail">
         {modules.map(({ id, label, icon: Icon }) => (
@@ -301,6 +314,25 @@ function Shell(props: {
             <Icon /> {label}
           </button>
         ))}
+        <div className="rail-foot">
+          <HistoryButton
+            path={path}
+            version={project.updatedAt}
+            onRestore={async (id) => {
+              await props.onFlush();
+              props.onReplace(await api.restore(path, id));
+              setAi({ status: 'idle' });
+            }}
+          />
+          <ModesButton theme={theme} onChange={setTheme} />
+          <hr />
+          <button
+            className="ghost"
+            onClick={() => settings.current?.showModal()}
+          >
+            <GearSix /> Paramètres
+          </button>
+        </div>
       </nav>
       {module === 'design' ? (
         <DesignModule
@@ -336,14 +368,10 @@ function Shell(props: {
           onFlush={props.onFlush}
         />
       )}
-      <FigmaDialog
-        ref={figma}
-        project={project}
-        onSubmit={(s: FigmaSource) => runAi(() => api.figmaImport(path, s))}
-      />
+      <FigmaDialog ref={figma} project={project} onSubmit={runImport} />
       <dialog ref={settings} className="dialog">
         <form method="dialog" className="dialog-body">
-          <h2>Réglages</h2>
+          <h2>Paramètres</h2>
           <label className="field">
             Nom
             <input
@@ -368,6 +396,50 @@ function Shell(props: {
           <button className="studio-primary">Fermer</button>
         </form>
       </dialog>
+    </div>
+  );
+}
+
+// Modes : aperçu du projet en clair ou en sombre.
+function ModesButton(props: { theme: Theme; onChange: (t: Theme) => void }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    addEventListener('click', close);
+    return () => removeEventListener('click', close);
+  }, [open]);
+  const modes = [
+    { id: 'light', label: 'Clair', icon: Sun },
+    { id: 'dark', label: 'Sombre', icon: Moon },
+  ] as const;
+  return (
+    <div className="history-anchor">
+      <button
+        className="ghost"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+      >
+        <SunHorizon /> Modes
+      </button>
+      {open && (
+        <div className="menu" role="menu" aria-label="Modes">
+          {modes.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              role="menuitemradio"
+              aria-checked={props.theme === id}
+              className="ghost"
+              onClick={() => props.onChange(id)}
+            >
+              <Icon /> {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

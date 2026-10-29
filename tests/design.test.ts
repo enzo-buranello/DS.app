@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { fetchFigma, fileKey } from '../app/main/figma.js';
+import { importFigma } from '../app/main/agent.js';
+import { parseLink } from '../app/main/figma.js';
 import { contains, flatten, tree } from '../app/shared/folders.js';
 import {
   brokenReferences,
@@ -34,67 +35,42 @@ test('identifiants lisibles et uniques', () => {
   assert.equal(slug('Écart', { ecart: 1 }), 'ecart-2');
 });
 
-test('lien Figma', () => {
-  assert.equal(
-    fileKey('https://www.figma.com/design/AbC123/Nom?node-id=1'),
-    'AbC123',
+test('lien Figma : fichier, page ou frame', () => {
+  assert.deepEqual(parseLink('https://www.figma.com/design/AbC123/Nom'), {
+    fileKey: 'AbC123',
+  });
+  assert.deepEqual(
+    parseLink('https://www.figma.com/design/AbC123/Nom?node-id=12-34&t=x'),
+    { fileKey: 'AbC123', nodeId: '12:34' },
   );
-  assert.equal(fileKey('https://exemple.com'), null);
+  assert.equal(parseLink('https://exemple.com'), null);
 });
 
-test('Figma : styles et composants publiés, puis leurs seuls nœuds', async () => {
-  const calls: string[] = [];
-  const responses: Record<string, object> = {
-    '/styles': {
-      meta: {
-        styles: [{ node_id: '1:1', name: 'Primaire', style_type: 'FILL' }],
-      },
-    },
-    '/components': {
-      meta: { components: [{ node_id: '2:2', name: 'Bouton' }] },
-    },
-    '/nodes?ids=1%3A1%2C2%3A2': {
-      nodes: {
-        '1:1': {
-          document: {
-            type: 'RECTANGLE',
-            name: 'Primaire',
-            fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0, a: 1 } }],
-          },
-        },
-        '2:2': {
-          document: {
-            type: 'COMPONENT',
-            name: 'Bouton',
-            layoutMode: 'HORIZONTAL',
-            absoluteBoundingBox: {},
-            children: [
-              {
-                type: 'TEXT',
-                name: 'Label',
-                characters: 'OK',
-                style: { fontFamily: 'Inter', fontSize: 14, fontWeight: 500 },
-              },
-            ],
-          },
-        },
+test('import Figma : met à jour sans doublon, garde les ajouts manuels', async () => {
+  process.env.STUDIO_FAKE_FIGMA = 'tests/fixtures/figma.json';
+  const base = emptyProject('A');
+  const before = {
+    ...base,
+    foundations: {
+      ...base.foundations,
+      colors: {
+        primary: { name: 'Ancienne', light: '#000000', dark: '#000000' },
+        brand: { name: 'Marque', light: '#c8803e', dark: '#c8803e' },
       },
     },
   };
-  const get = (async (url: string, init: RequestInit) => {
-    assert.equal(
-      (init.headers as Record<string, string>)['X-Figma-Token'],
-      'secret',
-    );
-    const path = url.replace('https://api.figma.com/v1/files/KEY', '');
-    calls.push(path);
-    return { ok: true, json: async () => responses[path] };
-  }) as unknown as typeof fetch;
-  const out = await fetchFigma('KEY', 'secret', get);
-  assert.deepEqual(calls.sort(), Object.keys(responses).sort());
-  assert.equal(out.styles[0].node?.fills[0], '#ff0000');
-  assert.equal(out.components[0].node?.children[0].characters, 'OK');
-  assert.equal(out.components[0].node?.absoluteBoundingBox, undefined);
+  const out = await importFigma(before, { fileKey: 'KEY' });
+  assert.equal(out.foundations.colors.brand.name, 'Marque');
+  assert.notEqual(out.foundations.colors.primary.name, 'Ancienne');
+  assert.equal(out.figma?.fileKey, 'KEY');
+  assert.deepEqual(brokenReferences(out), []);
+
+  process.env.STUDIO_FAKE_FIGMA = 'tests/fixtures/figma-missing.json';
+  await assert.rejects(
+    importFigma(before, { fileKey: 'KEY' }),
+    /figma:notfound/,
+  );
+  delete process.env.STUDIO_FAKE_FIGMA;
 });
 
 test('dossiers : « dossier/nom » regroupe les éléments', () => {

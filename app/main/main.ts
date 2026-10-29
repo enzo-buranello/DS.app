@@ -5,8 +5,8 @@ import {
   ipcMain,
   net,
   protocol,
-  safeStorage,
   screen,
+  shell,
 } from 'electron';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -14,14 +14,28 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StudioApi } from '../shared/api.js';
-import { design, suggestName } from './agent.js';
+import { design, importFigma, suggestName } from './agent.js';
 import { History } from './history.js';
-import { generate, readState } from './generate.js';
+import {
+  edit,
+  generate,
+  listFiles,
+  outDir,
+  readState,
+  restore,
+} from './generate.js';
+import { inside } from './guard.js';
+import { PICK, stopPreviews, swiftPreview, webPreview } from './preview.js';
+import { execFile } from 'node:child_process';
 import type { Entry } from '../shared/history.js';
 import type { Project } from '../shared/project.js';
-import { fetchFigma, fileKey } from './figma.js';
 import {
-  atomicWrite,
+  connectFigma,
+  figmaConnected,
+  figmaExpired,
+  parseLink,
+} from './figma.js';
+import {
   createProject,
   moveProject,
   readProject,
@@ -62,24 +76,6 @@ async function known(dir: string) {
     throw new Error('Projet inconnu');
 }
 
-// Token Figma : chiffré par le trousseau du système, jamais dans le projet.
-const tokenFile = path.join(app.getPath('userData'), 'figma-token');
-let sessionToken: string | undefined;
-async function figmaToken(token?: string) {
-  if (token) {
-    sessionToken = token;
-    if (safeStorage.isEncryptionAvailable())
-      await atomicWrite(
-        tokenFile,
-        safeStorage.encryptString(token).toString('base64'),
-      );
-    return token;
-  }
-  if (sessionToken) return sessionToken;
-  const raw = await fs.readFile(tokenFile, 'utf8').catch(() => null);
-  return raw ? safeStorage.decryptString(Buffer.from(raw, 'base64')) : null;
-}
-
 // Un projet sans historique (ouvert depuis un autre poste) reçoit d'abord
 // son état de départ, pour qu'on puisse toujours y revenir.
 async function base(dir: string, project: Project) {
@@ -88,12 +84,10 @@ async function base(dir: string, project: Project) {
     await h.record(null, project, { kind: 'create', label: 'Création' });
 }
 
+type Meta = Pick<Entry, 'kind' | 'label' | 'images'>;
+
 // Toute écriture du projet laisse une entrée dans l'historique.
-async function commit(
-  dir: string,
-  project: Project,
-  meta: { kind: Entry['kind']; label?: string },
-) {
+async function commit(dir: string, project: Project, meta: Meta) {
   const before = await readProject(dir).catch(() => null);
   if (before) await base(dir, before);
   const saved = await writeProject(dir, project);
@@ -104,7 +98,7 @@ async function withEntry(
   dir: string,
   before: Project,
   after: Project,
-  meta: { kind: Entry['kind']; label?: string },
+  meta: Meta,
 ) {
   await base(dir, before);
   const project = await writeProject(dir, after);
@@ -112,7 +106,36 @@ async function withEntry(
   return { project, entry: entry.id };
 }
 
-const api: StudioApi = {
+// Images jointes à une instruction : .studio/refs/<empreinte>.<ext>.
+async function saveRefs(dir: string, images: string[] = []) {
+  const out: string[] = [];
+  for (const url of images) {
+    const m = /^data:image\/(png|jpeg|webp|gif);base64,(.+)$/.exec(url);
+    if (!m) continue;
+    const bytes = Buffer.from(m[2], 'base64');
+    const name = `${createHash('sha1').update(bytes).digest('hex').slice(0, 16)}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+    await fs.mkdir(path.join(dir, '.studio', 'refs'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.studio', 'refs', name), bytes);
+    out.push(`refs/${name}`);
+  }
+  return out;
+}
+
+// Code : le langage actif est la première cible du projet.
+async function active(dir: string) {
+  const t = (await readProject(dir)).targets[0];
+  if (!t) throw new Error('Aucun langage');
+  return t;
+}
+const notify = (file: string | null) =>
+  win?.webContents.send('activity', { file });
+// Retouches du code en attente de Garder ou Annuler.
+const edits = new Map<
+  string,
+  { out: string; originals: Map<string, string | null> }
+>();
+
+const api: Omit<StudioApi, 'onActivity'> = {
   list: () => recents.list(),
   async create(name) {
     const dir = await pickFolder();
@@ -142,49 +165,35 @@ const api: StudioApi = {
     await recents.add(to, dir);
     return { path: to, project };
   },
-  async design(dir, instruction, scope) {
+  async design(dir, instruction, scope, images) {
     await known(dir);
     const before = await readProject(dir);
-    const after = await design(before, instruction, scope);
+    const refs = await saveRefs(dir, images);
+    const after = await design(
+      before,
+      instruction,
+      scope,
+      refs.map((r) => path.join(dir, '.studio', r)),
+    );
     return withEntry(dir, before, after, {
       kind: 'ai',
       label: instruction,
+      ...(refs.length && { images: refs }),
     });
   },
-  async figmaImport(dir, { url, token, variables }) {
+  async figmaImport(dir, url) {
     await known(dir);
-    const key = url ? fileKey(url) : null;
-    if (url && !key) throw new Error('Lien invalide');
-    const secret = key ? await figmaToken(token) : null;
-    if (key && !secret) throw new Error('Token manquant');
-    const source = {
-      ...(key && (await fetchFigma(key, secret!))),
-      ...(variables && { variables: JSON.parse(variables) }),
-    };
-    await atomicWrite(
-      path.join(dir, '.studio', 'cache', 'figma.json'),
-      JSON.stringify(source),
-    );
+    const link = parseLink(url);
+    if (!link) throw new Error('figma:notfound');
     const before = await readProject(dir);
-    const project = await design(
-      before,
-      'Remplace le design system par la conversion de cet import Figma : styles et variables en fondations, composants (et leurs variantes d’état) en composants. Ne change pas les pages.',
-      {},
-      source,
-    );
-    return withEntry(
-      dir,
-      before,
-      {
-        ...project,
-        ...(key && {
-          figma: { fileKey: key, importedAt: new Date().toISOString() },
-        }),
-      },
-      { kind: 'ai', label: 'Import Figma' },
-    );
+    const after = await importFigma(before, link).catch((e: Error) => {
+      if (e.message === 'figma:auth') figmaExpired();
+      throw e;
+    });
+    return withEntry(dir, before, after, { kind: 'ai', label: 'Import Figma' });
   },
-  hasFigmaToken: async () => !!(await figmaToken()),
+  figmaConnected: () => figmaConnected(),
+  figmaConnect: () => connectFigma((url) => void shell.openExternal(url)),
   suggestName: (summary) => suggestName(summary),
   async buildState(dir) {
     await known(dir);
@@ -194,8 +203,69 @@ const api: StudioApi = {
     await known(dir);
     const project = await readProject(dir);
     let state = await readState(dir);
-    for (const t of project.targets) state = await generate(dir, project, t);
+    try {
+      for (const t of project.targets)
+        state = await generate(dir, project, t, notify);
+    } finally {
+      notify(null);
+    }
     return state;
+  },
+  async codeFiles(dir) {
+    await known(dir);
+    return listFiles(outDir(dir, await active(dir)));
+  },
+  async readCode(dir, file) {
+    await known(dir);
+    const out = outDir(dir, await active(dir));
+    if (!inside(out, file)) throw new Error('Hors du dossier');
+    return fs.readFile(path.join(out, file), 'utf8');
+  },
+  async code(dir, instruction, scope, images) {
+    await known(dir);
+    const t = await active(dir);
+    const refs = await saveRefs(dir, images);
+    try {
+      const originals = await edit(
+        dir,
+        t,
+        instruction,
+        scope ?? {},
+        refs,
+        notify,
+      );
+      const id = createHash('sha1')
+        .update(`${Date.now()}${Math.random()}`)
+        .digest('hex')
+        .slice(0, 12);
+      edits.set(id, { out: outDir(dir, t), originals });
+      return id;
+    } finally {
+      notify(null);
+    }
+  },
+  async codeDone(dir, id, undo) {
+    await known(dir);
+    const e = edits.get(id);
+    edits.delete(id);
+    if (e && undo) await restore(e.out, e.originals);
+  },
+  async preview(dir) {
+    await known(dir);
+    const t = await active(dir);
+    const out = outDir(dir, t);
+    return t === 'swiftui' ? swiftPreview(dir, out) : webPreview(dir, out, t);
+  },
+  async inspect(url) {
+    const origin = new URL(url).origin;
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return;
+    const frame = win?.webContents.mainFrame.framesInSubtree.find(
+      (f) => f !== win!.webContents.mainFrame && f.url.startsWith(origin),
+    );
+    await frame?.executeJavaScript(PICK);
+  },
+  async simulator() {
+    execFile('open', ['-a', 'Simulator']);
   },
   async history(dir) {
     await known(dir);
@@ -247,9 +317,12 @@ app.whenReady().then(() => {
     const [, dir, ...rest] = new URL(req.url).pathname.split('/');
     const root = decodeURIComponent(dir);
     await known(root);
-    const assets = path.join(root, '.studio', 'assets');
     const file = path.join(root, '.studio', ...rest.map(decodeURIComponent));
-    if (!file.startsWith(assets + path.sep))
+    if (
+      !['assets', 'refs'].some((d) =>
+        file.startsWith(path.join(root, '.studio', d) + path.sep),
+      )
+    )
       return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(file).toString());
   });
@@ -272,3 +345,4 @@ app.whenReady().then(() => {
   else win.loadFile(path.join(here, 'ui', 'index.html'));
 });
 app.on('window-all-closed', () => app.quit());
+app.on('will-quit', stopPreviews);
