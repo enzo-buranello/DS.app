@@ -21,7 +21,7 @@ const font = z
     lineHeight: z.number().min(0.8).max(3),
   })
   .strict();
-const length = z.object({ name, value: px }).strict();
+const lengthToken = z.object({ name, value: px }).strict();
 const shadow = z
   .object({ name, x: z.number(), y: z.number(), blur: px, color: id })
   .strict();
@@ -30,8 +30,8 @@ export const foundationsSchema = z
   .object({
     colors: z.record(id, color),
     fonts: z.record(id, font),
-    spacing: z.record(id, length),
-    radius: z.record(id, length),
+    spacing: z.record(id, lengthToken),
+    radius: z.record(id, lengthToken),
     shadows: z.record(id, shadow),
   })
   .strict();
@@ -40,21 +40,42 @@ export const foundationsSchema = z
 export const breakpoints = ['desktop', 'tablet', 'mobile'] as const;
 export type Breakpoint = (typeof breakpoints)[number];
 
+// Chaque valeur est soit un identifiant de token, soit une valeur libre :
+// nombre (px) pour les longueurs, « #rrggbb » pour les couleurs.
+const length = z.union([id, z.number().finite().min(0).max(10_000)]);
+const paint = z.union([id, hex]);
+const size = z.union([
+  z.enum(['hug', 'fill']),
+  z.number().finite().min(0).max(10_000),
+]);
+const coord = z.number().finite().min(-10_000).max(10_000);
+export const isToken = (v: unknown): v is string =>
+  typeof v === 'string' && !v.startsWith('#');
+
 export const styleSchema = z
   .object({
-    direction: z.enum(['row', 'column']),
-    gap: id,
+    /** « free » : les enfants se placent librement (x, y). */
+    direction: z.enum(['row', 'column', 'free']),
+    gap: length,
     align: z.enum(['start', 'center', 'end', 'stretch']),
     justify: z.enum(['start', 'center', 'end', 'between']),
-    width: z.enum(['hug', 'fill']),
-    maxWidth: id,
-    padding: id,
-    background: id,
-    color: id,
-    border: id,
-    radius: id,
+    padding: length,
+    width: size,
+    height: size,
+    maxWidth: length,
+    x: coord,
+    y: coord,
+    background: paint,
+    color: paint,
+    border: paint,
+    borderWidth: z.number().finite().min(0).max(100),
+    radius: length,
     shadow: id,
+    opacity: z.number().min(0).max(1),
     font: id,
+    fontSize: z.number().finite().min(1).max(500),
+    fontWeight: z.number().int().min(100).max(900),
+    textAlign: z.enum(['left', 'center', 'right']),
     hidden: z.boolean(),
   })
   .partial()
@@ -63,7 +84,7 @@ export type Style = z.infer<typeof styleSchema>;
 
 export type Node = {
   id: string;
-  kind: 'box' | 'text' | 'image' | 'component' | 'list';
+  kind: 'box' | 'shape' | 'text' | 'image' | 'component' | 'list';
   name?: string;
   style?: Partial<Record<Breakpoint, Style>>;
   text?: string;
@@ -76,7 +97,7 @@ export const nodeSchema: z.ZodType<Node> = z.lazy(() =>
   z
     .object({
       id,
-      kind: z.enum(['box', 'text', 'image', 'component', 'list']),
+      kind: z.enum(['box', 'shape', 'text', 'image', 'component', 'list']),
       name: name.optional(),
       style: z.partialRecord(z.enum(breakpoints), styleSchema).optional(),
       text: z.string().max(5000).optional(),
@@ -184,7 +205,7 @@ export function references(
   const add = (style: Style) => {
     for (const [k, v] of Object.entries(style)) {
       const kind = styleKinds[k as keyof Style];
-      if (kind && typeof v === 'string') used.add(`${kind}:${v}`);
+      if (kind && isToken(v)) used.add(`${kind}:${v}`);
     }
   };
   for (const s of Object.values(p.foundations.shadows))

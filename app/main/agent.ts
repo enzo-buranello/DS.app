@@ -19,8 +19,8 @@ Règles :
 - Noms : regroupe les éléments d'une même famille en dossiers avec « dossier/nom » (ex. « Primaire/500 », « Boutons/Principal ») dès que le design system grandit.
 - Identifiants : minuscules, chiffres et tirets, en anglais court (primary, text-muted, space-4, button).
 - Couleurs : une valeur claire et une valeur sombre, contraste AA pour le texte. Toujours une couleur background (fond de page) et une couleur text.
-- Les styles n'utilisent que des identifiants de fondations existantes, jamais de valeur : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts.
-- Mise en page en flux uniquement. Nœuds : box (direction, gap, align, justify, width), text (text), image (src), component (instance d'un autre composant par son id).
+- Les styles utilisent les identifiants de fondations existantes : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts. Une valeur libre (nombre en px, couleur #rrggbb) seulement si aucune fondation ne convient.
+- Mise en page en flux uniquement. Nœuds : box (direction row ou column, gap, align, justify, width, height), text (text), image (src), component (instance d'un autre composant par son id).
 - Styles d'un nœud par format : desktop, puis tablet et mobile seulement s'ils changent.
 - États d'un composant (hover, active, disabled) : patch de style par identifiant de nœud.
 - Identifiants de nœuds uniques dans chaque composant.

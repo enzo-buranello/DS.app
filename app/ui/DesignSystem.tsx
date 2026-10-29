@@ -7,14 +7,17 @@ import {
   Plus,
   Trash,
 } from '@phosphor-icons/react';
-import type { Breakpoint, Node, Style } from '../shared/project.js';
+import type { Breakpoint } from '../shared/project.js';
 import {
+  AddMenu,
   Canvas,
   ElementSettings,
   FormatSwitch,
-  setStyle,
+  setStyles,
   Structure,
+  type EditorProps,
 } from './Editor.js';
+import { find } from '../shared/nodes.js';
 import { contains, flatten, tree, type Folder } from '../shared/folders.js';
 import {
   componentStates,
@@ -546,7 +549,7 @@ export function DesignModule(props: {
   const [sel, setSel] = useState<DSSelection>(null);
   const [state, setState] = useState<CompState>('default');
   const [editing, setEditing] = useState<string | null>(null);
-  const [node, setNode] = useState<string | null>(null);
+  const [node, setNode] = useState('root');
   const [bp, setBp] = useState<Breakpoint>('desktop');
   useEffect(() => {
     setSel(null);
@@ -556,18 +559,37 @@ export function DesignModule(props: {
     setSel(s);
     setState('default');
   };
+  // « Modifier » ouvre le composant avec sa racine déjà sélectionnée.
+  const edit = (id: string) => {
+    setEditing(id);
+    setNode(project.components[id]?.root.id ?? 'root');
+    setState('default');
+  };
+  function newComponent() {
+    const name = `Composant ${Object.keys(project.components).length + 1}`;
+    const id = slug(name, project.components);
+    props.onSave({
+      ...project,
+      components: {
+        ...project.components,
+        [id]: {
+          name,
+          root: {
+            id: 'root',
+            kind: 'box',
+            name,
+            style: { desktop: { direction: 'row', padding: 12 } },
+            children: [],
+          },
+          states: {},
+        },
+      },
+    });
+    select({ kind: 'components', id });
+    setEditing(id);
+    setNode('root');
+  }
   const ds = { project, sel, onSelect: select, onSave: props.onSave };
-  const settings = (
-    <DesignSettings
-      {...ds}
-      state={state}
-      onState={setState}
-      onEdit={(id) => {
-        setEditing(id);
-        setNode(null);
-      }}
-    />
-  );
   const c = editing ? project.components[editing] : undefined;
 
   if (!c || !editing)
@@ -576,30 +598,7 @@ export function DesignModule(props: {
         <DesignNav
           {...ds}
           onFigma={props.onFigma}
-          onAddComponent={() => {
-            const name = `Composant ${Object.keys(project.components).length + 1}`;
-            const id = slug(name, project.components);
-            props.onSave({
-              ...project,
-              components: {
-                ...project.components,
-                [id]: {
-                  name,
-                  root: {
-                    id: 'root',
-                    kind: 'box',
-                    name,
-                    style: { desktop: { direction: 'row', width: 'hug' } },
-                    children: [{ id: 'text-1', kind: 'text', text: name }],
-                  },
-                  states: {},
-                },
-              },
-            });
-            select({ kind: 'components', id });
-            setEditing(id);
-            setNode(null);
-          }}
+          onAddComponent={newComponent}
         />
         <main className="canvas" aria-label="Design system">
           <DesignBoard
@@ -610,24 +609,48 @@ export function DesignModule(props: {
           />
           {props.bar}
         </main>
-        {settings}
+        <DesignSettings
+          {...ds}
+          state={state}
+          onState={setState}
+          onEdit={edit}
+        />
       </>
     );
 
-  // Édition d'un composant ; un état autre que « Par défaut » ne change que le style.
+  // Édition d'un composant ; un état autre que « Par défaut » n'enregistre
+  // que des différences de style.
   const patches = state === 'default' ? undefined : c.states[state];
   const setComponent = (next: typeof c) =>
     props.onSave({
       ...project,
       components: { ...project.components, [editing]: next },
     });
-  const onRoot = (root: Node) => setComponent({ ...c, root });
-  const editor = {
+  const editor: EditorProps = {
     project,
     root: c.root,
-    onRoot,
-    sel: node,
+    onRoot: (root) => setComponent({ ...c, root }),
+    sel: find(c.root, node) ? node : c.root.id,
     onSelect: setNode,
+    bp,
+    base: props.path,
+    own: (id) =>
+      state === 'default'
+        ? find(c.root, id)?.node.style?.[bp]
+        : c.states[state]?.[id],
+    onStyle: (id, patch) => {
+      if (state === 'default')
+        return setComponent({ ...c, root: setStyles(c.root, id, bp, patch) });
+      const at: Record<string, unknown> = {
+        ...c.states[state]?.[id],
+        ...patch,
+      };
+      for (const k of Object.keys(patch)) if (at[k] === undefined) delete at[k];
+      setComponent({
+        ...c,
+        states: { ...c.states, [state]: { ...c.states[state], [id]: at } },
+      });
+    },
   };
   return (
     <>
@@ -635,73 +658,55 @@ export function DesignModule(props: {
         <button className="ghost back" onClick={() => setEditing(null)}>
           <ArrowLeft /> Design system
         </button>
-        <h2>{c.name}</h2>
+        <select
+          aria-label="Composant modifié"
+          value={editing}
+          onChange={(e) =>
+            e.target.value === '+' ? newComponent() : edit(e.target.value)
+          }
+        >
+          {Object.entries(project.components).map(([id, k]) => (
+            <option key={id} value={id}>
+              {k.name}
+            </option>
+          ))}
+          <option value="+">Nouveau composant</option>
+        </select>
+        <StateSelect value={state} onChange={setState} available={() => true} />
+        <AddMenu {...editor} exclude={editing} />
         <Structure {...editor} />
       </aside>
       <main className="canvas" aria-label={c.name}>
         <div className="canvas-head">
           <FormatSwitch bp={bp} onChange={setBp} />
         </div>
-        <Canvas
-          {...editor}
-          bp={bp}
-          theme={props.theme}
-          base={props.path}
-          patches={patches}
-        />
+        <Canvas {...editor} theme={props.theme} patches={patches} component />
       </main>
-      {node ? (
-        <aside className="panel right" aria-label="Paramètres">
-          <ElementSettings
-            {...editor}
-            bp={bp}
-            base={props.path}
-            stateOnly={state !== 'default'}
-            own={(id) =>
-              state === 'default'
-                ? findStyle(c.root, id, bp)
-                : c.states[state]?.[id]
-            }
-            onStyle={(id, key, value) => {
-              if (state === 'default')
-                return onRoot(setStyle(c.root, id, bp, key, value));
-              const at: Style = { ...c.states[state]?.[id], [key]: value };
-              if (value === undefined) delete at[key];
-              setComponent({
-                ...c,
-                states: {
-                  ...c.states,
-                  [state]: { ...c.states[state], [id]: at },
-                },
-              });
-            }}
-            header={
-              <StateSelect
-                value={state}
-                onChange={setState}
-                available={() => true}
-              />
-            }
-          />
-        </aside>
-      ) : (
-        settings
-      )}
+      <aside className="panel right" aria-label="Paramètres">
+        <ElementSettings
+          {...editor}
+          stateOnly={state !== 'default'}
+          header={
+            editor.sel === c.root.id && (
+              <section className="group">
+                <h3>Composant</h3>
+                <input
+                  aria-label="Nom du composant"
+                  key={editing + c.name}
+                  defaultValue={c.name}
+                  onBlur={(e) => {
+                    const name = e.currentTarget.value.trim();
+                    if (name && name !== c.name) setComponent({ ...c, name });
+                  }}
+                />
+              </section>
+            )
+          }
+        />
+      </aside>
     </>
   );
 }
-
-const findStyle = (
-  root: Node,
-  id: string,
-  bp: Breakpoint,
-): Style | undefined => {
-  if (root.id === id) return root.style?.[bp];
-  for (const child of root.children ?? []) {
-    const hit = findStyle(child, id, bp);
-    if (hit) return hit;
-  }
-};
 
 function StateSelect(props: {
   value: CompState;

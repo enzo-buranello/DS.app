@@ -370,3 +370,25 @@ images choisies sont copiées dans `.studio/assets/`.
 Preuves : tests unitaires des opérations sur l'arbre ; e2e (page, bloc,
 texte, valeur mobile rétablie, déplacement, image locale affichée, instance
 supprimée au clavier, texte et survol d'un composant modifiés).
+
+## 2026-10-29 — Valeurs libres, cadres libres, paramètres façon Figma
+
+Problème : imposer les tokens bridait la création ; les pages ne permettaient
+pas de placer librement ; l'édition d'un composant demandait des clics de trop.
+
+Décision : chaque valeur de style est un token ou une valeur libre (nombre en
+px, couleur #rrggbb) ; l'icône hexagone lie un token, la croix le détache en
+gardant sa valeur. Un bloc peut être « Libre » : ses enfants se placent en X/Y,
+se déplacent et se redimensionnent sur le canevas. Une nouvelle page est un
+cadre libre dont les réglages (fond, disposition…) s'affichent d'emblée. Le
+menu « Ajouter » (Bloc, Texte, Rectangle, Ellipse, Image importée, composants)
+est au-dessus de la Structure. Les formes ne contiennent rien. « Modifier »
+ouvre le composant, racine sélectionnée, avec un sélecteur de composant et
+d'état. Sélection en surbrillance dans la Structure et sur le canevas.
+
+Limite connue : un cadre libre ne s'adapte pas seul au mobile ; X/Y se règlent
+par format. L'agent garde la mise en page en flux.
+
+Preuves : e2e (fond par token puis détaché, rectangle déplacé et redimensionné
+à la souris, largeur saisie, valeur mobile rétablie, image, instance, composant
+ouvert directement, survol et ajout d'un badge dans le bouton).

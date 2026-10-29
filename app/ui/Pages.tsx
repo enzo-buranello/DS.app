@@ -8,20 +8,23 @@ import {
   type Project,
 } from '../shared/project.js';
 import {
+  AddMenu,
   Canvas,
   ElementSettings,
   FormatSwitch,
-  setStyle,
+  setStyles,
   Structure,
+  type EditorProps,
 } from './Editor.js';
 import type { Theme } from './render.js';
 
-// Module Pages : une page blanche à construire, à la main ou par l'IA.
+// Module Pages : chaque page est un cadre, libre par défaut, à construire à
+// la main ou par l'IA.
 
 const blankPage = (): Node => ({
   id: 'root',
   kind: 'box',
-  style: { desktop: { direction: 'column', width: 'fill' } },
+  style: { desktop: { direction: 'free', width: 'fill' } },
   children: [],
 });
 
@@ -35,12 +38,12 @@ export function PagesModule(props: {
   const { project } = props;
   const pages = Object.entries(project.pages);
   const [current, setCurrent] = useState<string | null>(null);
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState('root');
   const [bp, setBp] = useState<Breakpoint>('desktop');
-  useEffect(() => setSel(null), [props.path, current]);
   const pageId =
     current && project.pages[current] ? current : (pages[0]?.[0] ?? null);
   const page = pageId ? project.pages[pageId] : undefined;
+  useEffect(() => setSel('root'), [props.path, pageId]);
 
   function addPage() {
     const name = `Page ${pages.length + 1}`;
@@ -59,13 +62,17 @@ export function PagesModule(props: {
       pages: next ? { ...rest, [pageId]: next } : rest,
     });
   };
-  const onRoot = (root: Node) => page && setPage({ ...page, root });
-  const editor = page && {
+  const editor: EditorProps | undefined = page && {
     project,
     root: page.root,
-    onRoot,
-    sel,
+    onRoot: (root) => setPage({ ...page, root }),
+    sel: find(page.root, sel) ? sel : page.root.id,
     onSelect: setSel,
+    bp,
+    base: props.path,
+    own: (id) => find(page.root, id)?.node.style?.[bp],
+    onStyle: (id, patch) =>
+      setPage({ ...page, root: setStyles(page.root, id, bp, patch) }),
   };
 
   return (
@@ -93,7 +100,12 @@ export function PagesModule(props: {
             </button>
           ))}
         </section>
-        {editor && <Structure {...editor} />}
+        {editor && (
+          <>
+            <AddMenu {...editor} />
+            <Structure {...editor} />
+          </>
+        )}
       </aside>
       <main className="canvas" aria-label="Pages">
         {editor ? (
@@ -101,7 +113,7 @@ export function PagesModule(props: {
             <div className="canvas-head">
               <FormatSwitch bp={bp} onChange={setBp} />
             </div>
-            <Canvas {...editor} bp={bp} theme={props.theme} base={props.path} />
+            <Canvas {...editor} theme={props.theme} />
           </>
         ) : (
           <div className="board empty">
@@ -113,35 +125,36 @@ export function PagesModule(props: {
         {props.bar}
       </main>
       <aside className="panel right" aria-label="Paramètres">
-        {editor && sel ? (
+        {editor && page && (
           <ElementSettings
             {...editor}
-            bp={bp}
-            base={props.path}
-            own={(id) => find(editor.root, id)?.node.style?.[bp]}
-            onStyle={(id, key, value) =>
-              onRoot(setStyle(editor.root, id, bp, key, value))
+            header={
+              editor.sel === page.root.id && (
+                <section className="group">
+                  <h3>Page</h3>
+                  <div className="row">
+                    <input
+                      aria-label="Nom de la page"
+                      key={pageId! + page.name}
+                      defaultValue={page.name}
+                      onBlur={(e) => {
+                        const name = e.currentTarget.value.trim();
+                        if (name && name !== page.name)
+                          setPage({ ...page, name });
+                      }}
+                    />
+                    <button
+                      className="icon-btn"
+                      aria-label="Supprimer la page"
+                      onClick={() => setPage(null)}
+                    >
+                      <Trash />
+                    </button>
+                  </div>
+                </section>
+              )
             }
           />
-        ) : (
-          page && (
-            <>
-              <label className="field">
-                Nom
-                <input
-                  key={pageId! + page.name}
-                  defaultValue={page.name}
-                  onBlur={(e) => {
-                    const name = e.currentTarget.value.trim();
-                    if (name && name !== page.name) setPage({ ...page, name });
-                  }}
-                />
-              </label>
-              <button className="ghost danger" onClick={() => setPage(null)}>
-                <Trash /> Supprimer
-              </button>
-            </>
-          )
         )}
       </aside>
     </>
