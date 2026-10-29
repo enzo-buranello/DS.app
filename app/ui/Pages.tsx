@@ -17,6 +17,8 @@ import {
   type EditorProps,
 } from './Editor.js';
 import type { Theme } from './render.js';
+import { target } from '../shared/instances.js';
+import { createComponent, renameComponent, type Update } from './components.js';
 
 // Module Pages : chaque page est un cadre, libre par défaut, à construire à
 // la main ou par l'IA.
@@ -33,17 +35,22 @@ export function PagesModule(props: {
   path: string;
   theme: Theme;
   onSave: (p: Project) => void;
+  onUpdate: Update;
   bar?: React.ReactNode;
 }) {
   const { project } = props;
   const pages = Object.entries(project.pages);
   const [current, setCurrent] = useState<string | null>(null);
   const [sel, setSel] = useState('root');
+  const [edited, setEdited] = useState('root');
   const [bp, setBp] = useState<Breakpoint>('desktop');
   const pageId =
     current && project.pages[current] ? current : (pages[0]?.[0] ?? null);
   const page = pageId ? project.pages[pageId] : undefined;
-  useEffect(() => setSel('root'), [props.path, pageId]);
+  useEffect(() => {
+    setSel('root');
+    setEdited('root');
+  }, [props.path, pageId]);
 
   function addPage() {
     const name = `Page ${pages.length + 1}`;
@@ -62,17 +69,36 @@ export function PagesModule(props: {
       pages: next ? { ...rest, [pageId]: next } : rest,
     });
   };
+  const valid = (id: string) =>
+    page && target(project, page.root, id) ? id : 'root';
   const editor: EditorProps | undefined = page && {
     project,
     root: page.root,
     onRoot: (root) => setPage({ ...page, root }),
-    sel: find(page.root, sel) ? sel : page.root.id,
-    onSelect: setSel,
+    sel: valid(sel),
+    edited: valid(edited),
+    onSelect: (id, edit = true) => {
+      setSel(id);
+      if (edit) setEdited(id);
+    },
     bp,
     base: props.path,
     own: (id) => find(page.root, id)?.node.style?.[bp],
     onStyle: (id, patch) =>
       setPage({ ...page, root: setStyles(page.root, id, bp, patch) }),
+    onComponentize: (id) =>
+      createComponent(
+        project,
+        page.root,
+        id,
+        (p, root) => ({
+          ...p,
+          pages: { ...p.pages, [pageId!]: { ...p.pages[pageId!], root } },
+        }),
+        props.onUpdate,
+      ),
+    onRenameComponent: (id, name) =>
+      props.onUpdate((p) => renameComponent(p, id, name)),
   };
 
   return (
@@ -129,7 +155,7 @@ export function PagesModule(props: {
           <ElementSettings
             {...editor}
             header={
-              editor.sel === page.root.id && (
+              editor.edited === page.root.id && (
                 <section className="group">
                   <h3>Page</h3>
                   <div className="row">

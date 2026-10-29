@@ -392,3 +392,29 @@ par format. L'agent garde la mise en page en flux.
 Preuves : e2e (fond par token puis détaché, rectangle déplacé et redimensionné
 à la souris, largeur saisie, valeur mobile rétablie, image, instance, composant
 ouvert directement, survol et ajout d'un badge dans le bouton).
+
+## 2026-10-29 — Placer d'abord, éditer au clic, composants depuis la page
+
+Décision : un élément ajouté est sélectionné sur le canevas, prêt à glisser,
+mais le panneau garde les réglages de la page ; un clic ouvre ses paramètres.
+Le glisser suit la disposition du parent : libre au pixel avec aimantation
+(bords et centres des voisins et du parent, repères fins), ou rangement en
+colonne, ligne ou grille avec un trait d'insertion ; le conteneur survolé
+devient le nouveau parent et l'élément en adopte la disposition. Un clic
+choisit au niveau en cours, un double-clic entre (y compris dans une
+instance), Échap quitte un champ puis remonte. Panneau : Contenu (texte,
+image, lien), Disposition (X/Y ou aligner, puis disposition des enfants :
+colonne, ligne, grille, libre), Taille, Style, Effets replié.
+« Créer un composant » (bouton, clic droit, ⌘K) ajoute le composant au design
+system — valeurs libres remplacées par le token de même valeur — et laisse
+une instance liée ; ses éléments s'ajustent localement ; « Détacher
+l'instance » rend un élément indépendant. Le nom provisoire vient du contenu,
+l'IA en propose un en tâche de fond ; double-clic pour renommer.
+
+Limite connue : l'entrée dans l'historique arrivera avec l'historique
+(phase 4).
+
+Preuves : tests unitaires (création, ajustement, détachement) ; e2e (ajout
+sans panneau, glisser libre et aimanté, clic, double-clic, Échap, changement
+de parent avec trait d'insertion, ⌘K, ajustement local, détacher au clic
+droit, renommage au double-clic).

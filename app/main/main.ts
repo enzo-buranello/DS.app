@@ -14,7 +14,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StudioApi } from '../shared/api.js';
-import { design } from './agent.js';
+import { design, suggestName } from './agent.js';
 import { fetchFigma, fileKey } from './figma.js';
 import {
   atomicWrite,
@@ -135,6 +135,7 @@ const api: StudioApi = {
     });
   },
   hasFigmaToken: async () => !!(await figmaToken()),
+  suggestName: (summary) => suggestName(summary),
   async importImage(dir) {
     await known(dir);
     const file =

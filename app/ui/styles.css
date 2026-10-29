@@ -983,3 +983,71 @@ code {
 .artboard.component:not([style*='width']) {
   align-self: stretch;
 }
+
+/* --- Glisser : fantôme, repères d'alignement, emplacement d'insertion --- */
+.drag-ghost,
+.drop-into,
+.guide,
+.marker {
+  position: absolute;
+  pointer-events: none;
+}
+.drag-ghost {
+  outline: 1px dashed var(--ui-focus);
+  background: var(--ui-select-soft);
+}
+.drop-into {
+  outline: 2px solid var(--ui-select-hover);
+}
+.guide {
+  background: var(--ui-danger);
+}
+.marker {
+  background: var(--ui-focus);
+  border-radius: var(--ui-r-pill);
+}
+
+/* --- Menu du clic droit --- */
+.menu.context {
+  position: fixed;
+  top: auto;
+}
+
+/* --- Panneau : nom modifiable, action principale, effets repliés --- */
+.panel-head h2 {
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+}
+.name-input {
+  flex: 1;
+  min-width: 0;
+}
+.instance-mark {
+  flex: none;
+  color: var(--ui-text-2);
+  margin-right: var(--ui-s-1);
+}
+.main-action {
+  justify-content: flex-start;
+  align-self: flex-start;
+}
+.effects > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.effects > summary::-webkit-details-marker {
+  display: none;
+}
+.effects > summary h3::after {
+  content: ' +';
+  color: var(--ui-text-3);
+}
+.effects[open] > summary h3::after {
+  content: ' −';
+}
+.effects[open] {
+  gap: var(--ui-s-2);
+}

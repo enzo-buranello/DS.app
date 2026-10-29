@@ -18,6 +18,8 @@ import {
   type EditorProps,
 } from './Editor.js';
 import { find } from '../shared/nodes.js';
+import { target } from '../shared/instances.js';
+import { createComponent, renameComponent, type Update } from './components.js';
 import { contains, flatten, tree, type Folder } from '../shared/folders.js';
 import {
   componentStates,
@@ -75,6 +77,7 @@ export function DesignNav(
   props: Props & { onFigma: () => void; onAddComponent: () => void },
 ) {
   const { project } = props;
+  const [renaming, setRenaming] = useState<string | null>(null);
   function add(kind: FoundationKind, label: string) {
     const f = project.foundations;
     const name = `${label} ${Object.keys(f[kind]).length + 1}`;
@@ -119,6 +122,8 @@ export function DesignNav(
             folder={tree(entries(project, kind))}
             kind={kind}
             {...props}
+            renaming={renaming}
+            onRename={setRenaming}
           />
         </section>
       ))}
@@ -128,7 +133,14 @@ export function DesignNav(
 
 // Sous-dossiers d'abord, puis les éléments. Un dossier s'ouvre de lui-même
 // quand il contient l'élément sélectionné.
-function NavFolder(props: Props & { folder: Folder; kind: DSKind }) {
+function NavFolder(
+  props: Props & {
+    folder: Folder;
+    kind: DSKind;
+    renaming: string | null;
+    onRename: (key: string | null) => void;
+  },
+) {
   const { folder, kind, sel, project } = props;
   return (
     <>
@@ -146,24 +158,60 @@ function NavFolder(props: Props & { folder: Folder; kind: DSKind }) {
           </div>
         </details>
       ))}
-      {folder.leaves.map(([id, label]) => (
-        <button
-          key={id}
-          className="ghost item"
-          aria-current={
-            sel?.kind === kind && sel.id === id ? 'true' : undefined
-          }
-          onClick={() => props.onSelect({ kind, id })}
-        >
-          {kind === 'colors' && (
-            <span
-              className="dot"
-              style={{ background: project.foundations.colors[id]?.light }}
-            />
-          )}
-          {label}
-        </button>
-      ))}
+      {folder.leaves.map(([id, label]) =>
+        props.renaming === `${kind}:${id}` ? (
+          <input
+            key={id}
+            className="name-input"
+            aria-label="Nom"
+            autoFocus
+            defaultValue={
+              entries(project, kind).find(([k]) => k === id)?.[1].name
+            }
+            onBlur={(e) => {
+              const name = e.currentTarget.value.trim();
+              props.onRename(null);
+              if (!name) return;
+              props.onSave(
+                kind === 'components'
+                  ? renameComponent(project, id, name)
+                  : {
+                      ...project,
+                      foundations: {
+                        ...project.foundations,
+                        [kind]: {
+                          ...project.foundations[kind],
+                          [id]: { ...project.foundations[kind][id], name },
+                        },
+                      },
+                    },
+              );
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') props.onRename(null);
+            }}
+          />
+        ) : (
+          <button
+            key={id}
+            className="ghost item"
+            aria-current={
+              sel?.kind === kind && sel.id === id ? 'true' : undefined
+            }
+            onClick={() => props.onSelect({ kind, id })}
+            onDoubleClick={() => props.onRename(`${kind}:${id}`)}
+          >
+            {kind === 'colors' && (
+              <span
+                className="dot"
+                style={{ background: project.foundations.colors[id]?.light }}
+              />
+            )}
+            {label}
+          </button>
+        ),
+      )}
     </>
   );
 }
@@ -542,6 +590,7 @@ export function DesignModule(props: {
   path: string;
   theme: Theme;
   onSave: (p: Project) => void;
+  onUpdate: Update;
   onFigma: () => void;
   bar: React.ReactNode;
 }) {
@@ -550,6 +599,7 @@ export function DesignModule(props: {
   const [state, setState] = useState<CompState>('default');
   const [editing, setEditing] = useState<string | null>(null);
   const [node, setNode] = useState('root');
+  const [edited, setEdited] = useState('root');
   const [bp, setBp] = useState<Breakpoint>('desktop');
   useEffect(() => {
     setSel(null);
@@ -562,7 +612,8 @@ export function DesignModule(props: {
   // « Modifier » ouvre le composant avec sa racine déjà sélectionnée.
   const edit = (id: string) => {
     setEditing(id);
-    setNode(project.components[id]?.root.id ?? 'root');
+    setNode('root');
+    setEdited('root');
     setState('default');
   };
   function newComponent() {
@@ -588,6 +639,7 @@ export function DesignModule(props: {
     select({ kind: 'components', id });
     setEditing(id);
     setNode('root');
+    setEdited('root');
   }
   const ds = { project, sel, onSelect: select, onSave: props.onSave };
   const c = editing ? project.components[editing] : undefined;
@@ -630,8 +682,28 @@ export function DesignModule(props: {
     project,
     root: c.root,
     onRoot: (root) => setComponent({ ...c, root }),
-    sel: find(c.root, node) ? node : c.root.id,
-    onSelect: setNode,
+    sel: target(project, c.root, node) ? node : c.root.id,
+    edited: target(project, c.root, edited) ? edited : c.root.id,
+    onSelect: (id, edit = true) => {
+      setNode(id);
+      if (edit) setEdited(id);
+    },
+    onComponentize: (id) =>
+      createComponent(
+        project,
+        c.root,
+        id,
+        (p, root) => ({
+          ...p,
+          components: {
+            ...p.components,
+            [editing]: { ...p.components[editing], root },
+          },
+        }),
+        props.onUpdate,
+      ),
+    onRenameComponent: (id, name) =>
+      props.onUpdate((p) => renameComponent(p, id, name)),
     bp,
     base: props.path,
     own: (id) =>
@@ -687,7 +759,7 @@ export function DesignModule(props: {
           {...editor}
           stateOnly={state !== 'default'}
           header={
-            editor.sel === c.root.id && (
+            editor.edited === c.root.id && (
               <section className="group">
                 <h3>Composant</h3>
                 <input

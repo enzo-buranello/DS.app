@@ -19,6 +19,8 @@ export type StudioApi = {
     source: { url?: string; token?: string; variables?: string },
   ): Promise<Project>;
   hasFigmaToken(): Promise<boolean>;
+  /** Nom court proposé par l'IA pour un composant. */
+  suggestName(summary: string): Promise<string>;
   /** Choisit une image et la copie dans le projet ; renvoie « assets/… ». */
   importImage(path: string): Promise<string | null>;
 };
@@ -31,5 +33,6 @@ export const apiMethods = [
   'design',
   'figmaImport',
   'hasFigmaToken',
+  'suggestName',
   'importImage',
 ] as const;

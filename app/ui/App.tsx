@@ -15,6 +15,7 @@ import type { Opened, StudioApi } from '../shared/api.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
 import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
+import type { Update } from './components.js';
 import { PromptBar, type AiState } from './PromptBar.js';
 import type { Theme } from './render.js';
 
@@ -45,6 +46,10 @@ export default function App() {
   const [error, setError] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pending = useRef<(() => Promise<unknown>) | null>(null);
+  // Dernier état connu : les réponses asynchrones (nom proposé par l'IA)
+  // s'appliquent dessus, jamais sur une copie périmée.
+  const latest = useRef<Opened | null>(null);
+  latest.current = opened;
 
   const refresh = () => api.list().then(setEntries);
   useEffect(() => void refresh(), []);
@@ -58,8 +63,9 @@ export default function App() {
     await write?.();
   }
   function save(project: Project) {
-    if (!opened) return;
-    const path = opened.path;
+    if (!latest.current) return;
+    const path = latest.current.path;
+    latest.current = { path, project };
     setOpened({ path, project });
     pending.current = () =>
       api.save(path, project).then(refresh, () => setError(true));
@@ -95,6 +101,7 @@ export default function App() {
       onOpen={(path) => run(() => api.open(path))}
       onHome={() => flush().then(() => setOpened(null))}
       onSave={save}
+      onUpdate={(fn) => latest.current && save(fn(latest.current.project))}
       onFlush={flush}
       onReplace={(project) => {
         setOpened({ path: opened.path, project });
@@ -165,6 +172,7 @@ function Shell(props: {
   onOpen: (path: string) => void;
   onHome: () => void;
   onSave: (project: Project) => void;
+  onUpdate: Update;
   onFlush: () => Promise<void>;
   onReplace: (project: Project) => void;
   onMove: () => void;
@@ -271,6 +279,7 @@ function Shell(props: {
           path={path}
           theme={theme}
           onSave={props.onSave}
+          onUpdate={props.onUpdate}
           onFigma={() => figma.current?.showModal()}
           bar={
             <PromptBar
@@ -291,6 +300,7 @@ function Shell(props: {
           path={path}
           theme={theme}
           onSave={props.onSave}
+          onUpdate={props.onUpdate}
         />
       ) : (
         <>

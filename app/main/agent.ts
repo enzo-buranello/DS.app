@@ -72,3 +72,30 @@ export async function design(
   if (brokenReferences(next).length) throw new Error('Références invalides');
   return next;
 }
+
+// Nom proposé pour un composant créé depuis une page : requête courte, sans outil.
+const NAME = `Tu nommes un composant d'interface d'après son contenu. Un nom court en français, 1 à 3 mots, sans guillemets (ex. « Carte produit », « Bouton principal »). Uniquement la sortie structurée.`;
+const nameSchema = z.object({ name: z.string().min(1).max(40) });
+
+export async function suggestName(summary: string): Promise<string> {
+  if (process.env.STUDIO_FAKE_NAME) return process.env.STUDIO_FAKE_NAME;
+  for await (const m of query({
+    prompt: summary.slice(0, 4000),
+    options: {
+      systemPrompt: NAME,
+      tools: [],
+      settingSources: [],
+      maxTurns: 3,
+      outputFormat: {
+        type: 'json_schema',
+        schema: z.toJSONSchema(nameSchema, { target: 'draft-7' }) as Record<
+          string,
+          unknown
+        >,
+      },
+    },
+  }))
+    if (m.type === 'result' && m.subtype === 'success')
+      return nameSchema.parse(m.structured_output).name.trim();
+  throw new Error('Aucun nom');
+}

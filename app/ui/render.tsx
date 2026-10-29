@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { applyOverride, SEP } from '../shared/instances.js';
 import type {
   Breakpoint,
   Foundations,
@@ -68,17 +69,31 @@ export function css(node: Node, s: Style, inFree = false): CSSProperties {
     ...(box &&
       (free
         ? { position: 'relative' }
-        : {
-            display: 'flex',
-            flexDirection: s.direction === 'row' ? 'row' : 'column',
-            gap: len('s', s.gap),
-            alignItems:
-              s.align && (s.align === 'stretch' ? 'stretch' : flex[s.align]),
-            justifyContent:
-              s.justify &&
-              (s.justify === 'between' ? 'space-between' : flex[s.justify]),
-          })),
+        : s.direction === 'grid'
+          ? {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${s.columns ?? 2}, minmax(0, 1fr))`,
+              gap: len('s', s.gap),
+              alignItems:
+                s.align && (s.align === 'stretch' ? 'stretch' : flex[s.align]),
+            }
+          : {
+              display: 'flex',
+              flexDirection: s.direction === 'row' ? 'row' : 'column',
+              gap: len('s', s.gap),
+              alignItems:
+                s.align && (s.align === 'stretch' ? 'stretch' : flex[s.align]),
+              justifyContent:
+                s.justify &&
+                (s.justify === 'between' ? 'space-between' : flex[s.justify]),
+            })),
     ...(inFree && { position: 'absolute', left: s.x ?? 0, top: s.y ?? 0 }),
+    alignSelf:
+      !inFree && s.alignSelf
+        ? s.alignSelf === 'stretch'
+          ? 'stretch'
+          : flex[s.alignSelf]
+        : undefined,
     ...(s.hidden && { display: 'none' }),
     width: size(s.width),
     height: size(s.height),
@@ -116,6 +131,8 @@ type Ctx = {
   inert?: boolean;
   /** Le parent place ses enfants librement. */
   inFree?: boolean;
+  /** Contenu d'une instance : ajustements locaux et identifiants « instance/élément ». */
+  instance?: { id: string; overrides?: Node['overrides']; root: string };
 };
 
 /** Image du projet (« assets/… ») ou adresse web. */
@@ -124,12 +141,18 @@ export const assetUrl = (src: string, base?: string) =>
     ? src
     : `studio://asset/${encodeURIComponent(base)}/${src}`;
 
-export function Render({ node, ctx }: { node: Node; ctx: Ctx }) {
+export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
   const depth = ctx.depth ?? 0;
   if (depth > 12) return null;
+  const inst = ctx.instance;
+  const node = inst ? applyOverride(raw, inst.overrides?.[raw.id]) : raw;
   const s = resolve(node, ctx.bp, ctx.patches?.[node.id]);
   const style = css(node, s, ctx.inFree);
-  const data = ctx.inert ? {} : { 'data-node': node.id };
+  // La racine d'un composant se confond avec son instance.
+  const data =
+    ctx.inert || (inst && node.id === inst.root)
+      ? {}
+      : { 'data-node': inst ? `${inst.id}${SEP}${node.id}` : node.id };
   const child = { ...ctx, depth: depth + 1, inFree: false };
   if (node.kind === 'text')
     return (
@@ -150,7 +173,16 @@ export function Render({ node, ctx }: { node: Node; ctx: Ctx }) {
       <div style={style} {...data}>
         <Render
           node={c.root}
-          ctx={{ ...child, patches: undefined, inert: true }}
+          ctx={{
+            ...child,
+            patches: undefined,
+            inert: ctx.inert || !!inst,
+            instance: {
+              id: node.id,
+              overrides: node.overrides,
+              root: c.root.id,
+            },
+          }}
         />
       </div>
     ) : null;

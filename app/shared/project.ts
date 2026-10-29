@@ -55,7 +55,10 @@ export const isToken = (v: unknown): v is string =>
 export const styleSchema = z
   .object({
     /** « free » : les enfants se placent librement (x, y). */
-    direction: z.enum(['row', 'column', 'free']),
+    direction: z.enum(['row', 'column', 'grid', 'free']),
+    columns: z.number().int().min(1).max(12),
+    /** Alignement de l'élément dans un parent en flux. */
+    alignSelf: z.enum(['start', 'center', 'end', 'stretch']),
     gap: length,
     align: z.enum(['start', 'center', 'end', 'stretch']),
     justify: z.enum(['start', 'center', 'end', 'between']),
@@ -82,27 +85,49 @@ export const styleSchema = z
   .strict();
 export type Style = z.infer<typeof styleSchema>;
 
+export type Breakpoints<T> = Partial<Record<Breakpoint, T>>;
+/** Ajustement local d'un élément à l'intérieur d'une instance. */
+export type Override = {
+  text?: string;
+  src?: string;
+  href?: string;
+  style?: Breakpoints<Style>;
+};
 export type Node = {
   id: string;
   kind: 'box' | 'shape' | 'text' | 'image' | 'component' | 'list';
   name?: string;
-  style?: Partial<Record<Breakpoint, Style>>;
+  style?: Breakpoints<Style>;
   text?: string;
   src?: string;
+  href?: string;
   component?: string;
+  /** Instance : ajustements locaux par identifiant d'élément du composant. */
+  overrides?: Record<string, Override>;
   bind?: { collection: string; field: string };
   children?: Node[];
 };
+const styles = z.partialRecord(z.enum(breakpoints), styleSchema);
+const overrideSchema = z
+  .object({
+    text: z.string().max(5000).optional(),
+    src: z.string().max(500).optional(),
+    href: z.string().max(500).optional(),
+    style: styles.optional(),
+  })
+  .strict();
 export const nodeSchema: z.ZodType<Node> = z.lazy(() =>
   z
     .object({
       id,
       kind: z.enum(['box', 'shape', 'text', 'image', 'component', 'list']),
       name: name.optional(),
-      style: z.partialRecord(z.enum(breakpoints), styleSchema).optional(),
+      style: styles.optional(),
       text: z.string().max(5000).optional(),
       src: z.string().max(500).optional(),
+      href: z.string().max(500).optional(),
       component: id.optional(),
+      overrides: z.record(id, overrideSchema).optional(),
       bind: z.object({ collection: id, field: id }).strict().optional(),
       children: z.array(nodeSchema).max(500).optional(),
     })
@@ -195,7 +220,7 @@ const walk = (node: Node, fn: (n: Node) => void) => {
   fn(node);
   node.children?.forEach((c) => walk(c, fn));
 };
-const styles = (node: Node) => Object.values(node.style ?? {});
+const nodeStyles = (node: Node) => Object.values(node.style ?? {});
 
 /** Références (fondation ou composant) utilisées par le projet, « famille:id ». */
 export function references(
@@ -221,7 +246,10 @@ export function references(
   ];
   for (const root of roots)
     walk(root, (n) => {
-      styles(n).forEach((s) => s && add(s));
+      nodeStyles(n).forEach((s) => s && add(s));
+      Object.values(n.overrides ?? {}).forEach((o) =>
+        Object.values(o.style ?? {}).forEach((s) => s && add(s)),
+      );
       if (n.component) used.add(`components:${n.component}`);
     });
   return used;
