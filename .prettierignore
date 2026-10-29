@@ -1,5 +1,4 @@
 node_modules/
 dist/
-.ds-studio/
 test-results/
 package-lock.json

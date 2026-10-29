@@ -296,3 +296,25 @@ Preuves : e2e mis à jour (tailles d'écran, libellés).
 ## À compléter par l’étudiant
 
 Date, problème, options explorées, décision, preuves et limite connue.
+
+## 2026-10-29 — Refonte : CMS de conception, du design system au code
+
+Problème : l'atelier était un starter de tokens à clés fixes, avec un modèle de
+nœuds copié de Figma, un pont plugin et trois connecteurs IA. Trop lourd pour
+le grand public et impossible de créer un design system libre.
+
+Décision : app Electron (Mac, Windows, Linux ; un clone, `npm install`,
+`npm start`). Un projet = un dossier local avec `.studio/project.json` comme
+seule source de vérité. Quatre modules : Design system, Pages, Contenus, Code.
+Mise en page en flux uniquement (Bloc, Texte, Image, Composant, Liste), styles
+par format bureau / tablette / mobile, uniquement en tokens. Couleurs clair et
+sombre. IA via la connexion Claude Code existante, deux rôles : Design et
+Développement. Vérification humaine conservée sous forme « Garder / Annuler »
+après application sur le canevas, plus un historique d'instantanés.
+
+Supprimé : pont et plugin Figma, connecteurs Codex et Gemini, chat, tokens v1,
+document v2, lanceurs, scripts de qualification, docs V2, design system et
+écrans d'exemple.
+
+Preuves (phase 1) : tests unitaires du stockage, e2e Electron (créer,
+renommer, changer de dossier, revenir à l'accueil).

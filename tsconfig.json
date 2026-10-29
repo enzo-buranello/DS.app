@@ -7,19 +7,9 @@
     "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
-  "include": [
-    "app",
-    "connectors",
-    "tests",
-    "scripts/*.ts",
-    "vite.config.ts",
-    "playwright.config.ts",
-    "figma-plugin/src",
-    "vite.plugin.config.ts"
-  ]
+  "include": ["app", "tests", "playwright.config.ts"]
 }
