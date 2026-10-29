@@ -28,6 +28,7 @@ Règles :
 - Couleurs : une valeur claire et une valeur sombre, contraste AA pour le texte. Toujours une couleur background (fond de page) et une couleur text.
 - Mise en page en flux de préférence : box (direction row, column ou grid avec columns ; gap, align, justify, width, height), text (text), image (src), shape, component. La disposition « free » (x, y) seulement si on la demande.
 - Une page : racine « root », box en colonne, width fill, des sections empilées.
+- Contenus : une collection a des champs (text, longText, image, number, date, link, boolean) et des éléments. Pour afficher une collection, un nœud « list » avec bind.collection ; ses enfants forment le modèle d'un élément, et un text ou une image s'y lie par bind { collection, field }. Tu peux créer ou remplir des collections en portée globale.
 - Styles d'un nœud par format : desktop, puis tablet et mobile seulement s'ils changent.
 - États d'un composant (hover, active, disabled) : patch de style par identifiant de nœud.
 - Identifiants de nœuds uniques dans chaque page et chaque composant.
@@ -35,6 +36,7 @@ Règles :
 
 const globalSchema = designSchema.extend({
   pages: projectSchema.shape.pages.optional(),
+  collections: projectSchema.shape.collections.optional(),
 });
 const elementSchema = z.object({ node: nodeSchema });
 const jsonSchema = (s: z.ZodType) =>
@@ -73,6 +75,12 @@ export async function design(
     foundations: project.foundations,
     components: project.components,
   };
+  const fields = Object.fromEntries(
+    Object.entries(project.collections).map(([k, c]) => [
+      k,
+      { name: c.name, fields: c.fields },
+    ]),
+  );
   let next: Project;
   if (scope.node) {
     const tree = scope.page
@@ -82,6 +90,7 @@ export async function design(
     if (!tree || !node) throw new Error('Élément introuvable');
     const prompt = [
       `Design system :\n${JSON.stringify(ds)}`,
+      `Collections :\n${JSON.stringify(fields)}`,
       `Portée élément. Élément à modifier :\n${JSON.stringify(node)}`,
       `Instruction : ${instruction}`,
     ].join('\n\n');
@@ -113,7 +122,7 @@ export async function design(
         };
   } else {
     const prompt = [
-      `Projet actuel :\n${JSON.stringify({ ...ds, pages: project.pages })}`,
+      `Projet actuel :\n${JSON.stringify({ ...ds, pages: project.pages, collections: project.collections })}`,
       scope.page && `Page ouverte : ${scope.page}`,
       source && `Import Figma à convertir :\n${JSON.stringify(source)}`,
       `Portée globale. Instruction : ${instruction}`,
@@ -125,7 +134,12 @@ export async function design(
       globalSchema,
       process.env.STUDIO_FAKE_AGENT,
     )) as z.infer<typeof globalSchema>;
-    next = { ...project, ...out, pages: out.pages ?? project.pages };
+    next = {
+      ...project,
+      ...out,
+      pages: out.pages ?? project.pages,
+      collections: out.collections ?? project.collections,
+    };
   }
   next = projectSchema.parse(next);
   if (brokenReferences(next).length) throw new Error('Références invalides');

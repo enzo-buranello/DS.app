@@ -66,6 +66,7 @@
   --ui-panel-w: 360px;
   --ui-panel-fluid: clamp(220px, 24vw, var(--ui-panel-w));
   --ui-artboard-h: 800px;
+  --ui-cell-w: 140px;
   --ui-placeholder: #d9d9d9;
   --ui-panel-pad: 16px;
   --ui-duration: 0.2s;
@@ -1090,5 +1091,68 @@ code {
   flex-direction: column;
 }
 .history-text .muted {
+  font-size: var(--ui-fs-caption);
+}
+
+/* --- Contenus : tableau --- */
+.table-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--ui-s-6);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ui-s-2);
+}
+.content-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--ui-surface);
+  border-radius: var(--ui-r-item);
+  overflow: hidden;
+}
+.content-table th,
+.content-table td {
+  padding: var(--ui-s-1);
+  text-align: left;
+  border-bottom: 1px solid var(--ui-border);
+  vertical-align: middle;
+}
+.content-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.content-table th .th {
+  font-weight: var(--ui-fw-medium);
+  color: var(--ui-text-2);
+}
+.content-table th .th[aria-current='true'] {
+  background: var(--ui-active);
+  color: var(--ui-text);
+}
+.content-table td input:not([type='checkbox']) {
+  width: var(--ui-cell-w);
+  border-color: transparent;
+  background: transparent;
+}
+.content-table td input:not([type='checkbox']):focus {
+  border-color: var(--ui-border-control);
+  background: var(--ui-surface);
+}
+.cell-image img {
+  width: var(--ui-s-8);
+  height: var(--ui-s-8);
+  object-fit: cover;
+  border-radius: var(--ui-r-small);
+}
+.row-actions .icon-btn {
+  opacity: 0;
+}
+.content-table tr:hover .row-actions .icon-btn,
+.row-actions .icon-btn:focus-visible {
+  opacity: 1;
+}
+.count {
+  margin-left: auto;
   font-size: var(--ui-fs-caption);
 }

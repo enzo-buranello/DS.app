@@ -18,8 +18,10 @@ import {
   Eye,
   EyeSlash,
   GridFour,
+  Database,
   Hexagon,
   ImageSquare,
+  ListBullets,
   LinkBreak,
   Plus,
   Rectangle,
@@ -31,10 +33,12 @@ import {
   Trash,
   X,
 } from '@phosphor-icons/react';
+import { listAbove } from '../shared/content.js';
 import {
   canHold,
   duplicate,
   find,
+  ids,
   insert,
   move,
   newId,
@@ -87,7 +91,7 @@ const kindIcons = {
   text: TextT,
   image: ImageSquare,
   component: Diamond,
-  list: Square,
+  list: ListBullets,
 };
 
 export const label = (n: Node, p: Project) =>
@@ -627,6 +631,8 @@ export function addNode(root: Node, sel: string, node: Node): Node {
     y: 40 + ((n * 24) % 240),
     ...(node.kind === 'box' && { width: 240, height: 160 }),
     ...node.style?.desktop,
+    // Pleine largeur : collé au bord, sans dépasser.
+    ...(node.style?.desktop?.width === 'fill' && { x: 0 }),
   };
   return insert(root, { ...node, style: { ...node.style, desktop } }, at);
 }
@@ -696,6 +702,50 @@ export function AddMenu(props: EditorProps & { exclude?: string }) {
             if (src)
               add({ kind: 'image', src, style: { desktop: { width: 320 } } });
           })}
+          {Object.entries(project.collections).map(([cid, c]) =>
+            // Liste : une carte par élément de la collection, champ texte lié.
+            item(`Liste ${c.name}`, <ListBullets />, () => {
+              const f = c.fields.find(
+                (x) => x.type !== 'image' && x.type !== 'boolean',
+              );
+              const card = newId(
+                root,
+                'box',
+                new Set([...ids(root), newId(root, 'list')]),
+              );
+              add({
+                kind: 'list',
+                bind: { collection: cid },
+                style: {
+                  desktop: {
+                    direction: 'grid',
+                    columns: 3,
+                    gap: 16,
+                    width: 'fill',
+                  },
+                  mobile: { columns: 1 },
+                },
+                children: [
+                  {
+                    id: card,
+                    kind: 'box',
+                    style: {
+                      desktop: { direction: 'column', gap: 8, padding: 16 },
+                    },
+                    children: f
+                      ? [
+                          {
+                            id: `${card}-text`,
+                            kind: 'text',
+                            bind: { collection: cid, field: f.id },
+                          },
+                        ]
+                      : [],
+                  },
+                ],
+              });
+            }),
+          )}
           {components.length > 0 && (
             <span className="menu-label">Composants</span>
           )}
@@ -921,6 +971,61 @@ export function EditableName(p: {
         if (e.key === 'Escape') setEditing(false);
       }}
     />
+  );
+}
+
+/**
+ * Champ lié : dans une liste, les champs de sa collection ; ailleurs, ceux de
+ * toutes les collections (le premier élément s'affiche).
+ */
+function FieldSelect(props: EditorProps & { node: Node }) {
+  const { project, root, node } = props;
+  const inList = listAbove(root, node.id);
+  const fits = (t: string) =>
+    node.kind === 'image' ? t === 'image' : t !== 'image';
+  const options = Object.entries(project.collections)
+    .filter(([k]) => !inList || k === inList)
+    .flatMap(([k, c]) =>
+      c.fields
+        .filter((f) => fits(f.type))
+        .map(
+          (f) =>
+            [
+              `${k}:${f.id}`,
+              inList ? f.name : `${c.name} · ${f.name}`,
+            ] as const,
+        ),
+    );
+  if (!options.length) return null;
+  const value = node.bind?.field
+    ? `${node.bind.collection}:${node.bind.field}`
+    : '';
+  return (
+    <div className="num">
+      <span className="num-icon" title="Champ">
+        <Database />
+      </span>
+      <select
+        aria-label="Champ"
+        value={value}
+        onChange={(e) => {
+          const [collection, field] = e.target.value.split(':');
+          props.onRoot(
+            update(root, node.id, (n) => ({
+              ...n,
+              bind: e.target.value ? { collection, field } : undefined,
+            })),
+          );
+        }}
+      >
+        <option value="">—</option>
+        {options.map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -1181,7 +1286,30 @@ export function ElementSettings(
       {!props.stateOnly && (
         <section className="group">
           <h3>Contenu</h3>
-          {node.kind === 'text' && (
+          {node.kind === 'list' && (
+            <select
+              aria-label="Collection"
+              value={node.bind?.collection ?? ''}
+              onChange={(e) =>
+                props.onRoot(
+                  update(root, id, (n) => ({
+                    ...n,
+                    bind: { collection: e.target.value },
+                  })),
+                )
+              }
+            >
+              {Object.entries(project.collections).map(([k, c]) => (
+                <option key={k} value={k}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {(node.kind === 'text' || node.kind === 'image') && !part && (
+            <FieldSelect {...props} node={node} />
+          )}
+          {node.kind === 'text' && !node.bind?.field && (
             <textarea
               aria-label="Texte"
               rows={3}
@@ -1189,7 +1317,7 @@ export function ElementSettings(
               onChange={(e) => setNode({ text: e.target.value })}
             />
           )}
-          {node.kind === 'image' && (
+          {node.kind === 'image' && !node.bind?.field && (
             <button
               onClick={async () => {
                 const src = await window.studio.importImage(props.base);

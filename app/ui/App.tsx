@@ -16,6 +16,7 @@ import { HistoryButton } from './History.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
 import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
+import { ContentModule } from './Content.js';
 import type { Update } from './components.js';
 import { PromptBar, type AiState } from './PromptBar.js';
 import type { Theme } from './render.js';
@@ -317,6 +318,13 @@ function Shell(props: {
           theme={theme}
           onSave={props.onSave}
           onUpdate={props.onUpdate}
+          bar={bar}
+        />
+      ) : module === 'content' ? (
+        <ContentModule
+          project={project}
+          path={path}
+          onSave={props.onSave}
           bar={bar}
         />
       ) : (

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { applyOverride, SEP } from '../shared/instances.js';
+import { display, type Value } from '../shared/content.js';
 import type {
   Breakpoint,
   Foundations,
@@ -133,7 +134,28 @@ type Ctx = {
   inFree?: boolean;
   /** Contenu d'une instance : ajustements locaux et identifiants « instance/élément ». */
   instance?: { id: string; overrides?: Node['overrides']; root: string };
+  /** Élément de collection affiché par la liste englobante. */
+  item?: { collection: string; values: Record<string, Value> };
 };
+
+/** Valeur liée : élément de la liste englobante, sinon premier élément. */
+function boundValue(node: Node, ctx: Ctx) {
+  const b = node.bind;
+  if (!b?.field) return null;
+  const c = ctx.project.collections[b.collection];
+  const f = c?.fields.find((x) => x.id === b.field);
+  if (!c || !f) return null;
+  const values =
+    ctx.item?.collection === b.collection
+      ? ctx.item.values
+      : c.items[0]?.values;
+  const v = values?.[f.id];
+  return {
+    field: f,
+    value: v,
+    text: v === undefined ? f.name : display(v, f.type),
+  };
+}
 
 /** Image du projet (« assets/… ») ou adresse web. */
 export const assetUrl = (src: string, base?: string) =>
@@ -154,16 +176,21 @@ export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
       ? {}
       : { 'data-node': inst ? `${inst.id}${SEP}${node.id}` : node.id };
   const child = { ...ctx, depth: depth + 1, inFree: false };
+  const bound = boundValue(node, ctx);
   if (node.kind === 'text')
     return (
       <p style={style} {...data}>
-        {node.text}
+        {bound ? bound.text : node.text}
       </p>
     );
   if (node.kind === 'shape') return <div style={style} {...data} />;
+  const src =
+    bound?.field.type === 'image' && typeof bound.value === 'string'
+      ? bound.value
+      : node.src;
   if (node.kind === 'image')
-    return node.src ? (
-      <img style={style} src={assetUrl(node.src, ctx.base)} alt="" {...data} />
+    return src ? (
+      <img style={style} src={assetUrl(src, ctx.base)} alt="" {...data} />
     ) : (
       <div className="placeholder" style={style} {...data} />
     );
@@ -197,6 +224,29 @@ export function Render({ node: raw, ctx }: { node: Node; ctx: Ctx }) {
         return (cs.y ?? 0) + (typeof cs.height === 'number' ? cs.height : 40);
       }),
     );
+  // Liste : son contenu se répète pour chaque élément de la collection (une
+  // fois, avec les noms des champs, si elle est vide).
+  if (node.kind === 'list' && node.bind) {
+    const c = node.bind && ctx.project.collections[node.bind.collection];
+    const items = c && c.items.length ? c.items : [{ id: 'vide', values: {} }];
+    return (
+      <div style={style} {...data}>
+        {items.map((it) =>
+          node.children?.map((ch) => (
+            <Render
+              key={`${it.id}-${ch.id}`}
+              node={ch}
+              ctx={{
+                ...child,
+                inFree: free,
+                item: { collection: node.bind!.collection, values: it.values },
+              }}
+            />
+          )),
+        )}
+      </div>
+    );
+  }
   return (
     <div style={style} {...data}>
       {node.children?.map((c) => (

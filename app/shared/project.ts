@@ -104,7 +104,8 @@ export type Node = {
   component?: string;
   /** Instance : ajustements locaux par identifiant d'élément du composant. */
   overrides?: Record<string, Override>;
-  bind?: { collection: string; field: string };
+  /** Liste : la collection affichée ; élément : le champ dont il montre la valeur. */
+  bind?: { collection: string; field?: string };
   children?: Node[];
 };
 const styles = z.partialRecord(z.enum(breakpoints), styleSchema);
@@ -128,7 +129,10 @@ export const nodeSchema: z.ZodType<Node> = z.lazy(() =>
       href: z.string().max(500).optional(),
       component: id.optional(),
       overrides: z.record(id, overrideSchema).optional(),
-      bind: z.object({ collection: id, field: id }).strict().optional(),
+      bind: z
+        .object({ collection: id, field: id.optional() })
+        .strict()
+        .optional(),
       children: z.array(nodeSchema).max(500).optional(),
     })
     .strict(),

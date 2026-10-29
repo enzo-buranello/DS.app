@@ -437,3 +437,18 @@ Preuves : tests unitaires (portée, regroupement, retrait) ; e2e (instruction
 globale, deux déplacements regroupés, portée élément, Annuler, Garder,
 Restaurer) ; essai réel : page d'accueil complète en 47 s sans référence
 cassée, puis un élément modifié en 11 s sans toucher au reste.
+
+## 2026-10-29 — Phase 5 : contenus
+
+Décision : le module Contenus gère des collections simples (texte, texte
+long, image, nombre, date, lien, oui/non), saisies dans un tableau ; les
+images sont copiées dans le projet. L'identifiant d'un champ reste celui de
+sa création, son nom se change librement. Sur une page, « Ajouter › Liste »
+affiche une collection : son contenu se répète pour chaque élément ; un texte
+ou une image s'y lie à un champ (hors liste : premier élément). Un champ ou
+une collection utilisés ne se suppriment pas. L'IA voit les collections et
+peut en créer ou en remplir en portée globale.
+
+Preuves : tests unitaires (conversion, affichage, liaisons) ; e2e
+(collection, champs typés, saisie, image, liste, champ lié, suppression
+bloquée).
