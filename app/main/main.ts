@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  safeStorage,
+  screen,
+} from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,11 +132,13 @@ for (const [name, fn] of Object.entries(api))
   );
 
 app.whenReady().then(() => {
+  // La fenêtre tient toujours dans l'écran qui l'affiche.
+  const area = screen.getPrimaryDisplay().workAreaSize;
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 640,
+    width: Math.min(1440, area.width),
+    height: Math.min(900, area.height),
+    minWidth: Math.min(960, area.width),
+    minHeight: Math.min(600, area.height),
     title: 'DS-Studio',
     backgroundColor: '#f5f5f5',
     webPreferences: {

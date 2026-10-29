@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FigmaLogo, Plus, Trash } from '@phosphor-icons/react';
+import { CaretRight, FigmaLogo, Plus, Trash } from '@phosphor-icons/react';
+import { contains, flatten, tree, type Folder } from '../shared/folders.js';
 import {
   componentStates,
   references,
@@ -92,29 +93,56 @@ export function DesignNav(props: Props & { onFigma: () => void }) {
               </button>
             )}
           </div>
-          {entries(project, kind).map(([id, item]) => (
-            <button
-              key={id}
-              className="ghost item"
-              aria-current={
-                props.sel?.kind === kind && props.sel.id === id
-                  ? 'true'
-                  : undefined
-              }
-              onClick={() => props.onSelect({ kind, id })}
-            >
-              {kind === 'colors' && (
-                <span
-                  className="dot"
-                  style={{ background: (item as { light: string }).light }}
-                />
-              )}
-              {item.name}
-            </button>
-          ))}
+          <NavFolder
+            folder={tree(entries(project, kind))}
+            kind={kind}
+            {...props}
+          />
         </section>
       ))}
     </aside>
+  );
+}
+
+// Sous-dossiers d'abord, puis les éléments. Un dossier s'ouvre de lui-même
+// quand il contient l'élément sélectionné.
+function NavFolder(props: Props & { folder: Folder; kind: DSKind }) {
+  const { folder, kind, sel, project } = props;
+  return (
+    <>
+      {folder.folders.map((sub) => (
+        <details
+          key={sub.path}
+          className="folder"
+          open={(sel?.kind === kind && contains(sub, sel.id)) || undefined}
+        >
+          <summary className="item">
+            <CaretRight className="caret" /> {sub.name}
+          </summary>
+          <div className="folder-body">
+            <NavFolder {...props} folder={sub} />
+          </div>
+        </details>
+      ))}
+      {folder.leaves.map(([id, label]) => (
+        <button
+          key={id}
+          className="ghost item"
+          aria-current={
+            sel?.kind === kind && sel.id === id ? 'true' : undefined
+          }
+          onClick={() => props.onSelect({ kind, id })}
+        >
+          {kind === 'colors' && (
+            <span
+              className="dot"
+              style={{ background: project.foundations.colors[id]?.light }}
+            />
+          )}
+          {label}
+        </button>
+      ))}
+    </>
   );
 }
 
@@ -213,30 +241,45 @@ export function DesignBoard(
         entries(project, kind).length ? (
           <section key={kind} className="board-group">
             <h3>{label}</h3>
-            <div className={`board-items ${kind}`}>
-              {kind === 'components'
-                ? Object.entries(project.components).map(([id, c]) => (
-                    <button key={id} className="board-item" {...pick(kind, id)}>
-                      <Render
-                        node={c.root}
-                        ctx={{
-                          ...ctx,
-                          patches:
-                            sel?.id === id && props.state !== 'default'
-                              ? c.states[props.state]
-                              : undefined,
-                        }}
-                      />
-                      <span className="board-label">{c.name}</span>
-                    </button>
-                  ))
-                : Object.entries(f[kind as FoundationKind]).map(([id, t]) => (
-                    <button key={id} className="board-item" {...pick(kind, id)}>
-                      <Sample kind={kind as FoundationKind} id={id} />
-                      <span className="board-label">{t.name}</span>
-                    </button>
-                  ))}
-            </div>
+            {flatten(tree(entries(project, kind)))
+              .filter((folder) => folder.leaves.length)
+              .map((folder) => (
+                <div key={folder.path} className="board-folder">
+                  {folder.path && <h4>{folder.path.replaceAll('/', ' / ')}</h4>}
+                  <div className={`board-items ${kind}`}>
+                    {folder.leaves.map(([id, label]) =>
+                      kind === 'components' ? (
+                        <button
+                          key={id}
+                          className="board-item"
+                          {...pick(kind, id)}
+                        >
+                          <Render
+                            node={project.components[id].root}
+                            ctx={{
+                              ...ctx,
+                              patches:
+                                sel?.id === id && props.state !== 'default'
+                                  ? project.components[id].states[props.state]
+                                  : undefined,
+                            }}
+                          />
+                          <span className="board-label">{label}</span>
+                        </button>
+                      ) : (
+                        <button
+                          key={id}
+                          className="board-item"
+                          {...pick(kind, id)}
+                        >
+                          <Sample kind={kind} id={id} />
+                          <span className="board-label">{label}</span>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ))}
           </section>
         ) : null,
       )}

@@ -64,6 +64,7 @@
   --ui-icon-box: 32px;
   --ui-label-w: 128px;
   --ui-panel-w: 360px;
+  --ui-panel-fluid: clamp(220px, 24vw, var(--ui-panel-w));
   --ui-panel-pad: 16px;
   --ui-duration: 0.2s;
 
@@ -352,9 +353,13 @@ code {
 /* --- Coquille : barre du haut, navigation, panneaux, canevas --- */
 .shell {
   height: 100vh;
+  overflow: hidden;
   display: grid;
-  grid-template-columns: auto var(--ui-panel-w) 1fr var(--ui-panel-w);
-  grid-template-rows: auto 1fr;
+  /* Les panneaux rétrécissent avec la fenêtre ; le canevas prend le reste. */
+  grid-template-columns:
+    auto var(--ui-panel-fluid) minmax(0, 1fr)
+    var(--ui-panel-fluid);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     'top top top top'
     'rail left canvas right';
@@ -491,6 +496,11 @@ code {
 }
 .row input:not([type='color']) {
   flex: 1;
+  min-width: 0;
+}
+.field input.color-picker {
+  width: var(--ui-control-h);
+  flex: none;
 }
 
 /* --- Canevas : planche du design system et barre IA --- */
@@ -601,4 +611,42 @@ code {
   flex: 1;
   padding: 0 var(--ui-s-2);
   color: var(--ui-text-2);
+}
+
+/* --- Dossiers d'éléments --- */
+.folder > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s-2);
+  min-height: var(--ui-control-h);
+  padding: 0 var(--ui-s-3);
+  border-radius: var(--ui-r-control);
+  cursor: pointer;
+  list-style: none;
+}
+.folder > summary::-webkit-details-marker {
+  display: none;
+}
+.folder > summary:hover {
+  background: var(--ui-hover);
+}
+.folder[open] > summary .caret {
+  transform: rotate(90deg);
+}
+.folder-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-1);
+  padding-left: var(--ui-s-4);
+}
+.board-folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-2);
+}
+.board-folder h4 {
+  margin: 0;
+  font-size: var(--ui-fs-caption);
+  font-weight: var(--ui-fw-regular);
+  opacity: 0.6;
 }

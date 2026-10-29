@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fetchFigma, fileKey } from '../app/main/figma.js';
+import { contains, flatten, tree } from '../app/shared/folders.js';
 import {
   brokenReferences,
   designSchema,
@@ -94,4 +95,21 @@ test('Figma : styles et composants publiés, puis leurs seuls nœuds', async () 
   assert.equal(out.styles[0].node?.fills[0], '#ff0000');
   assert.equal(out.components[0].node?.children[0].characters, 'OK');
   assert.equal(out.components[0].node?.absoluteBoundingBox, undefined);
+});
+
+test('dossiers : « dossier/nom » regroupe les éléments', () => {
+  const t = tree([
+    ['a', { name: 'Primaire/500' }],
+    ['b', { name: 'Primaire/Survol/600' }],
+    ['c', { name: 'Texte' }],
+  ]);
+  assert.deepEqual(t.leaves, [['c', 'Texte']]);
+  assert.equal(t.folders[0].name, 'Primaire');
+  assert.deepEqual(t.folders[0].leaves, [['a', '500']]);
+  assert.equal(t.folders[0].folders[0].path, 'Primaire/Survol');
+  assert.ok(contains(t.folders[0], 'b'));
+  assert.deepEqual(
+    flatten(t).map((f) => f.path),
+    ['', 'Primaire', 'Primaire/Survol'],
+  );
 });

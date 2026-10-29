@@ -16,6 +16,7 @@ const DESIGN = `Tu es le designer d'un projet d'application. Tu exécutes l'inst
 Tu renvoies le design system complet (fondations et composants) après modification. Garde tel quel tout ce que l'instruction ne demande pas de changer, avec les mêmes identifiants.
 
 Règles :
+- Noms : regroupe les éléments d'une même famille en dossiers avec « dossier/nom » (ex. « Primaire/500 », « Boutons/Principal ») dès que le design system grandit.
 - Identifiants : minuscules, chiffres et tirets, en anglais court (primary, text-muted, space-4, button).
 - Couleurs : une valeur claire et une valeur sombre, contraste AA pour le texte. Toujours une couleur background (fond de page) et une couleur text.
 - Les styles n'utilisent que des identifiants de fondations existantes, jamais de valeur : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts.

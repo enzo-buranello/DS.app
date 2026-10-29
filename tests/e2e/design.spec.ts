@@ -60,6 +60,38 @@ test('design system : saisie à la main, IA, annuler puis garder', async () => {
     .click();
   await page.getByLabel('État').selectOption('hover');
   await expect(page.getByRole('button', { name: 'Supprimer' })).toBeVisible();
+
+  // Dossier : renommer « Primaire/Croûte » range la couleur dans « Primaire ».
+  await page.getByRole('button', { name: 'Croûte (primaire)' }).first().click();
+  const nom = page.getByLabel('Paramètres').getByLabel('Nom');
+  await nom.fill('Primaire/Croûte');
+  await nom.press('Enter');
+  const folder = page.locator('.panel.left details', { hasText: 'Primaire' });
+  await expect(folder).toHaveAttribute('open', '');
+  await expect(folder.getByRole('button', { name: 'Croûte' })).toBeVisible();
+  await expect(
+    page.locator('.board-folder h4', { hasText: 'Primaire' }),
+  ).toBeVisible();
+
+  // Petit écran : tout reste dans la fenêtre, la liste défile.
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setSize(1000, 640),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const panel = document
+          .querySelector('.panel.right')!
+          .getBoundingClientRect();
+        const left = document.querySelector('.panel.left')!;
+        return (
+          panel.right <= innerWidth &&
+          panel.bottom <= innerHeight &&
+          left.scrollHeight > left.clientHeight
+        );
+      }),
+    )
+    .toBe(true);
   await page.getByRole('button', { name: 'Thème sombre' }).click();
   await expect(page.locator('.board')).toHaveAttribute('data-theme', 'dark');
   await app.close();

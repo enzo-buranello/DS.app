@@ -339,3 +339,17 @@ Preuves : génération réelle sur un projet vide (17 couleurs, 9 styles de
 texte, 8 composants, références valides), conservée comme fixture ; tests
 unitaires (références, import Figma simulé) ; e2e (saisie, IA annulée puis
 gardée, états, thème sombre).
+
+## 2026-10-29 — Fenêtre adaptée à l'écran et dossiers d'éléments
+
+Problème : sur un petit écran, la fenêtre dépassait et le panneau de
+paramètres était coupé ; un grand design system devenait une longue liste.
+
+Décision : la fenêtre s'ouvre à la taille de l'écran ; les panneaux suivent
+la largeur (220 à 360 px) et chaque zone défile verticalement. Les dossiers
+se créent par le nom : « Primaire/500 » range l'élément dans « Primaire »,
+sur toutes les familles et sur plusieurs niveaux. La liste les replie, la
+planche les titre ; l'agent Design range ses éléments de la même façon.
+
+Preuves : e2e à 1000 × 640 (paramètres visibles, liste qui défile, dossier
+créé par renommage).
