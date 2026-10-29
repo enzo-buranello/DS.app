@@ -21,6 +21,16 @@ dans `<dossier>/.studio/project.json` : c'est la seule source de vérité, le
 code est généré à partir de lui. Transmettre le dossier suffit pour reprendre
 le projet sur une autre machine (bouton « Ouvrir » de l'accueil).
 
+## Modules
+
+1. **Design system** : fondations (couleurs claires et sombres, typographies,
+   espacements, arrondis, ombres) et composants avec leurs états ; création
+   par l'IA, à la main, ou import Figma.
+2. **Pages** : pages libres ou en flux, formats bureau / tablette / mobile.
+3. **Contenus** : collections simples, affichées par des listes.
+4. **Code** : React + Tailwind, Next.js, HTML/CSS ou SwiftUI, générés dans
+   `<dossier>/code/<cible>`. Seul ce qui a changé est régénéré.
+
 ## IA
 
 L'IA utilise la connexion Claude Code de la machine : installer
@@ -29,7 +39,7 @@ L'IA utilise la connexion Claude Code de la machine : installer
 ## Code source
 
 - `app/main/` : processus Electron (fenêtre, dossiers, lecture et écriture,
-  agent IA, import Figma).
+  historique, agents Design et Développement, import Figma).
 - `app/shared/` : schéma du projet et contrat entre interface et processus.
 - `app/ui/` : interface React.
 - `scripts/run.mjs` : `start`, `dev` et `build`.

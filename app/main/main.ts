@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import type { StudioApi } from '../shared/api.js';
 import { design, suggestName } from './agent.js';
 import { History } from './history.js';
+import { generate, readState } from './generate.js';
 import type { Entry } from '../shared/history.js';
 import type { Project } from '../shared/project.js';
 import { fetchFigma, fileKey } from './figma.js';
@@ -185,6 +186,17 @@ const api: StudioApi = {
   },
   hasFigmaToken: async () => !!(await figmaToken()),
   suggestName: (summary) => suggestName(summary),
+  async buildState(dir) {
+    await known(dir);
+    return readState(dir);
+  },
+  async generate(dir) {
+    await known(dir);
+    const project = await readProject(dir);
+    let state = await readState(dir);
+    for (const t of project.targets) state = await generate(dir, project, t);
+    return state;
+  },
   async history(dir) {
     await known(dir);
     return new History(dir).list();

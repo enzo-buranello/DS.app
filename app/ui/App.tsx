@@ -17,6 +17,7 @@ import type { Project, ProjectEntry } from '../shared/project.js';
 import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
 import { ContentModule } from './Content.js';
+import { CodeModule } from './Code.js';
 import type { Update } from './components.js';
 import { PromptBar, type AiState } from './PromptBar.js';
 import type { Theme } from './render.js';
@@ -328,13 +329,12 @@ function Shell(props: {
           bar={bar}
         />
       ) : (
-        <>
-          <aside className="panel left">
-            <h2>{current.label}</h2>
-          </aside>
-          <main className="canvas" aria-label={current.label} />
-          <aside className="panel right" aria-label="Paramètres" />
-        </>
+        <CodeModule
+          project={project}
+          path={path}
+          onSave={props.onSave}
+          onFlush={props.onFlush}
+        />
       )}
       <FigmaDialog
         ref={figma}

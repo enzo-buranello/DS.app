@@ -452,3 +452,23 @@ peut en créer ou en remplir en portée globale.
 Preuves : tests unitaires (conversion, affichage, liaisons) ; e2e
 (collection, champs typés, saisie, image, liste, champ lié, suppression
 bloquée).
+
+## 2026-10-29 — Phase 6 : génération de code
+
+Décision : l'agent Développement (Claude Agent SDK, connexion existante)
+génère chaque cible choisie dans `<dossier>/code/<cible>` : React + Tailwind,
+Next.js (export statique), HTML/CSS, SwiftUI. Il lit `.studio/project.json`,
+travaille dans l'ordre tokens → composants → pages → contenus et ne reçoit
+que ce qui a changé depuis la dernière génération réussie (empreintes dans
+`.studio/build.json`). Un garde-fou décide de chaque outil : lecture dans le
+projet, écriture dans le dossier de la cible, commandes de construction
+seulement (npm, npx, node, swift, fichiers), sans chemin hors de la cible.
+Les images du projet sont copiées par l'app. Le module Code n'affiche que les
+cibles, le dossier, l'état et « Générer ».
+
+Limite connue : la première génération prend plusieurs minutes et consomme
+du quota ; SwiftUI est écrit mais pas compilé ici (Xcode requis).
+
+Preuves : tests unitaires (empreintes, garde-fous) ; e2e (cibles, première
+génération complète, aucune régénération sans changement, page seule
+régénérée) ; génération réelle HTML/CSS en 107 s, rendue bureau et mobile.

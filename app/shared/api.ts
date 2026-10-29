@@ -1,3 +1,4 @@
+import type { BuildState } from './build.js';
 import type { Entry } from './history.js';
 import type { Project, ProjectEntry } from './project.js';
 
@@ -30,6 +31,10 @@ export type StudioApi = {
   suggestName(summary: string): Promise<string>;
   /** Choisit une image et la copie dans le projet ; renvoie « assets/… ». */
   importImage(path: string): Promise<string | null>;
+  /** État de la dernière génération, par cible. */
+  buildState(path: string): Promise<BuildState>;
+  /** Génère le code des cibles choisies ; seul ce qui a changé. */
+  generate(path: string): Promise<BuildState>;
   /** Itérations du projet, de la plus récente à la plus ancienne. */
   history(path: string): Promise<Entry[]>;
   /** Ramène le projet à une itération ; crée une nouvelle entrée. */
@@ -48,6 +53,8 @@ export const apiMethods = [
   'hasFigmaToken',
   'suggestName',
   'importImage',
+  'buildState',
+  'generate',
   'history',
   'restore',
   'discard',
