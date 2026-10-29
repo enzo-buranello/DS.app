@@ -92,11 +92,12 @@ import {
   type TokenValue,
 } from '../shared/model.js';
 
+// Cibles de l'atelier : application mobile, tablette, web et extension.
 const devices = [
-  { label: 'Compact · 320', width: 320, height: 568 },
-  { label: 'Standard · 375', width: 375, height: 812 },
-  { label: 'Grand · 430', width: 430, height: 932 },
-  { label: 'Desktop · 1024', width: 1024, height: 768 },
+  { label: 'Mobile · 375', width: 375, height: 812 },
+  { label: 'Tablette · 768', width: 768, height: 1024 },
+  { label: 'Ordinateur · 1280', width: 1280, height: 800 },
+  { label: 'Extension · 360', width: 360, height: 600 },
 ];
 // Largeur de rendu du catalogue avant mise à l'échelle dans la scène.
 const CATALOGUE_WIDTH = 960;
@@ -339,9 +340,9 @@ export default function App() {
   // Document de nœuds (aperçu, catalogue, composants).
   const [doc, setDoc] = useState<Doc>();
   const [docError, setDocError] = useState('');
-  const [device, setDevice] = useState(1);
+  const [device, setDevice] = useState(0);
   const [scenario, setScenario] = useState('cards');
-  const [frameHeight, setFrameHeight] = useState(devices[1].height);
+  const [frameHeight, setFrameHeight] = useState(devices[0].height);
   const [agent, setAgent] = useState('claude');
   const [message, setMessage] = useState('');
   const [chat, setChat] = useState<
@@ -1217,7 +1218,7 @@ export default function App() {
       setState(next);
       setProposal(undefined);
       announceChange();
-      setNotice(`Révision ${next.revision} enregistrée.`);
+      setNotice('Modification enregistrée.');
     });
     setSaving(false);
   }
@@ -1343,7 +1344,7 @@ export default function App() {
           focusTokens();
         }}
       >
-        Aller aux tokens
+        Aller au thème
       </a>
       <header className="studio-header">
         <span className="brand-symbol" aria-hidden="true">
@@ -1374,9 +1375,6 @@ export default function App() {
           >
             <ClockCounterClockwise />
             Historique
-            <span className="badge" aria-hidden="true">
-              r{state.revision}
-            </span>
           </button>
         </div>
       </header>
@@ -1651,11 +1649,7 @@ export default function App() {
                   (!message.trim() || !selectedAgent?.available)
                 }
               >
-                {thinking
-                  ? 'Arrêter'
-                  : manual
-                    ? 'Ouvrir les tokens'
-                    : 'Envoyer'}
+                {thinking ? 'Arrêter' : manual ? 'Ouvrir le thème' : 'Envoyer'}
               </button>
             </form>
           </div>
@@ -1934,7 +1928,7 @@ export default function App() {
           {[...state.history].reverse().map((event) => (
             <li key={event.id}>
               <div>
-                <strong>r{event.revision}</strong> · {event.source} ·{' '}
+                <strong>Modification {event.revision}</strong> ·{' '}
                 <time>{new Date(event.date).toLocaleString('fr-FR')}</time>
                 <p>{event.patches.map((p) => p.key).join(', ')}</p>
               </div>
@@ -1967,9 +1961,7 @@ export default function App() {
         aria-labelledby="diff-title"
       >
         <h2 id="diff-title">Valider le changement</h2>
-        <p className="token-hint">
-          {proposal?.source} · r{proposal?.revision}
-        </p>
+        <p className="token-hint">Modification {proposal?.revision}</p>
         {staleProposal && (
           <p role="alert" className="error">
             Une autre validation a modifié le DS. Refaire la proposition.
@@ -1979,7 +1971,7 @@ export default function App() {
           <table>
             <thead>
               <tr>
-                <th>Token</th>
+                <th>Élément</th>
                 <th>Avant</th>
                 <th>Après</th>
               </tr>

@@ -95,7 +95,13 @@ export function SelectionPanel({
       <div className="section-head">
         <div>
           <span className="muted">{KIND[s.kind]}</span>
-          <h3 id="selection-title">{s.name}</h3>
+          {/* Élément seul : le champ de nom de l'inspecteur sert de titre. */}
+          <h3
+            id="selection-title"
+            className={!done && s.kind !== 'token' ? 'sr-only' : undefined}
+          >
+            {s.name}
+          </h3>
         </div>
         <button
           type="button"

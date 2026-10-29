@@ -438,6 +438,11 @@ export function Inspector(p: InspectorProps) {
     <Section title="Taille" key="size">
       {axis('width', 'Largeur')}
       {axis('height', 'Hauteur')}
+    </Section>
+  );
+  // Limites de taille : réglage fin, rangé dans Avancé.
+  const sizeLimits = (
+    <Section title="Limites de taille" key="limits">
       <Toggle
         label="Garder les proportions"
         checked={!!size.lockRatio}
@@ -446,16 +451,15 @@ export function Inspector(p: InspectorProps) {
       <div className="ins-grid2">
         {(
           [
-            ['minWidth', 'Largeur min', 'Largeur mini'],
-            ['maxWidth', 'Largeur max', 'Largeur maxi'],
-            ['minHeight', 'Hauteur min', 'Hauteur mini'],
-            ['maxHeight', 'Hauteur max', 'Hauteur maxi'],
+            ['minWidth', 'Largeur min'],
+            ['maxWidth', 'Largeur max'],
+            ['minHeight', 'Hauteur min'],
+            ['maxHeight', 'Hauteur max'],
           ] as const
-        ).map(([f, label, short]) => (
+        ).map(([f, label]) => (
           <NumberField
             key={f}
             label={label}
-            short={short}
             unit="px"
             min={0}
             placeholder="—"
@@ -468,6 +472,17 @@ export function Inspector(p: InspectorProps) {
     </Section>
   );
 
+  // --- Texte d'abord pour un texte ou un champ, sinon après la disposition ---
+  const textFirst = isText || type === 'field';
+  const text = (
+    <TextSection
+      key="text"
+      open={textFirst || !!s.resolved.props.text}
+      {...{ p, s, val, set, mark }}
+    />
+  );
+  if (textFirst) sections.push(text);
+
   // --- Disposition : disposition automatique et taille ---
   sections.push(
     <Section title="Disposition" key="layout">
@@ -475,15 +490,7 @@ export function Inspector(p: InspectorProps) {
       {dimensions}
     </Section>,
   );
-
-  // --- Texte ---
-  sections.push(
-    <TextSection
-      key="text"
-      open={isText || type === 'field' || !!s.resolved.props.text}
-      {...{ p, s, val, set, mark }}
-    />,
-  );
+  if (!textFirst) sections.push(text);
 
   // --- Style : fond, bordure, arrondi, opacité, ombre ---
   sections.push(
@@ -501,6 +508,7 @@ export function Inspector(p: InspectorProps) {
   sections.push(
     <Section title="Avancé" key="advanced" open={false}>
       {position}
+      {sizeLimits}
       <div className="ins-sub">
         {blend}
         <NumberField
@@ -540,6 +548,7 @@ export function Inspector(p: InspectorProps) {
         <div className="ins-head-row">
           {s.target.kind === 'node' && !state && (
             <input
+              className="title-input"
               aria-label="Nom du calque"
               value={s.node.name}
               maxLength={120}

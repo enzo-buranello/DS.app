@@ -94,10 +94,10 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
   await page.getByRole('button', { name: 'Écrans', exact: true }).click();
   const frame = page.frameLocator('iframe');
   for (const [value, width] of [
-    ['0', 320],
-    ['1', 375],
-    ['2', 430],
-    ['3', 1024],
+    ['0', 375],
+    ['1', 768],
+    ['2', 1280],
+    ['3', 360],
   ] as const) {
     await page
       .getByRole('combobox', { name: 'Taille d’écran', exact: true })
@@ -137,7 +137,7 @@ test('largeurs réelles, interactions, formulaire et desktop responsive', async 
   }
   await page
     .getByRole('combobox', { name: 'Taille d’écran', exact: true })
-    .selectOption('1');
+    .selectOption('0');
   // Interactions natives : prototype en mode Test (P).
   await page.keyboard.press('p');
   await expect(page.getByRole('button', { name: /^Test/ })).toHaveAttribute(
@@ -334,7 +334,7 @@ test('V2 : clavier, 1024 px et absence de stockage navigateur', async ({
   await page.getByRole('heading', { name: 'Thème', exact: true }).waitFor();
   await page.keyboard.press('Tab');
   await expect(
-    page.getByRole('link', { name: 'Aller aux tokens' }),
+    page.getByRole('link', { name: 'Aller au thème' }),
   ).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(
@@ -428,8 +428,8 @@ test('layout v3 : scène sans défilement, panneau repliable, captures 1440 × 9
   await page.screenshot({ path: 'test-results/layout-apercu.png' });
   await page
     .getByRole('combobox', { name: 'Taille d’écran', exact: true })
-    .selectOption('3');
-  await expect(page.locator('iframe')).toHaveAttribute('width', '1024');
+    .selectOption('2');
+  await expect(page.locator('iframe')).toHaveAttribute('width', '1280');
   await expectFits(page);
 
   // Repli du panneau : la scène s'élargit et l'échelle est recalculée.
@@ -579,7 +579,7 @@ test('barre de prompt : Entrée, Maj+Entrée, bulle repliable, écriture directe
     .getByRole('combobox', { name: 'Mode de travail' })
     .selectOption('manual');
   await expect(input).toBeDisabled();
-  await page.getByRole('button', { name: 'Ouvrir les tokens' }).click();
+  await page.getByRole('button', { name: 'Ouvrir le thème' }).click();
   await expect(
     page.getByRole('heading', { name: 'Thème', exact: true }),
   ).toBeFocused();
@@ -780,8 +780,8 @@ test('réglages d’écran : dans la vue Écrans seulement, état conservé', as
   // Vue Composants : aucun réglage d'écran.
   await expect(width).toHaveCount(0);
   await page.getByRole('button', { name: 'Écrans', exact: true }).click();
-  await width.selectOption('2');
-  await expect(page.locator('iframe')).toHaveAttribute('width', '430');
+  await width.selectOption('1');
+  await expect(page.locator('iframe')).toHaveAttribute('width', '768');
   // Mode Tester : choix de l'écran affiché.
   await page.getByRole('button', { name: 'Tester', exact: true }).click();
   await editor
@@ -793,11 +793,11 @@ test('réglages d’écran : dans la vue Écrans seulement, état conservé', as
   await page.getByRole('button', { name: 'Composants', exact: true }).click();
   await expect(width).toHaveCount(0);
   await page.getByRole('button', { name: 'Écrans', exact: true }).click();
-  await expect(width).toHaveValue('2');
+  await expect(width).toHaveValue('1');
   await expect(
     editor.getByRole('combobox', { name: 'Écran', exact: true }),
   ).toHaveValue('form');
-  await expect(page.locator('iframe')).toHaveAttribute('width', '430');
+  await expect(page.locator('iframe')).toHaveAttribute('width', '768');
 });
 
 const BUTTON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48" viewBox="0 0 160 48">

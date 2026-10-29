@@ -1486,6 +1486,17 @@ del {
   flex: 1;
   font-weight: var(--ui-fw-medium);
 }
+/* Nom de l'élément : titre du panneau, modifiable en place. */
+.title-input {
+  min-height: 40px;
+  padding: 0 var(--ui-s-2);
+  margin-left: calc(-1 * var(--ui-s-2));
+  border-color: transparent;
+  font-size: var(--ui-fs-title);
+}
+.title-input:hover {
+  border-color: var(--ui-border);
+}
 .ins-section + .ins-section {
   margin-top: var(--ui-s-10);
 }

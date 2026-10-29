@@ -278,6 +278,21 @@ Preuves : e2e mis à jour (libellés, menu d'état, réglages d'écran).
 Limite connue : la note sur l'envoi du brief à Codex a été retirée de
 l'interface ; la règle reste dans START_HERE.md.
 
+## 2026-10-28 — Cibles mobile, tablette, web et extension
+
+Problème : l'atelier vise des applications web, mobiles, tablettes et des
+extensions, mais l'aperçu ne proposait que trois largeurs de téléphone et un
+« Desktop » à 1024 px.
+
+Décision : quatre tailles d'écran nommées par cible : Mobile 375, Tablette
+768, Ordinateur 1280, Extension 360 × 600 (fenêtre d'extension de
+navigateur). Pour un élément seul, le nom modifiable sert de titre du
+panneau ; un texte affiche le groupe Texte avant la Disposition ; les
+limites de taille passent dans Avancé ; l'historique parle de
+« modifications » plutôt que de révisions.
+
+Preuves : e2e mis à jour (tailles d'écran, libellés).
+
 ## À compléter par l’étudiant
 
 Date, problème, options explorées, décision, preuves et limite connue.
