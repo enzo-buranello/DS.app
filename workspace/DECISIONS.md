@@ -353,3 +353,20 @@ planche les titre ; l'agent Design range ses éléments de la même façon.
 
 Preuves : e2e à 1000 × 640 (paramètres visibles, liste qui défile, dossier
 créé par renommage).
+
+## 2026-10-29 — Phase 3 : pages, canevas et Structure
+
+Décision : les calques façon Figma sont remplacés par une « Structure » :
+cinq sortes d'éléments (Bloc, Texte, Image, Composant ; Liste viendra avec les
+contenus), en flux, nommés d'après leur contenu. On ajoute dans le bloc
+sélectionné (sinon juste après), on réordonne en glissant, on duplique ou
+supprime (boutons ou clavier). Le canevas affiche un format à la fois
+(Bureau 1280, Tablette 768, Mobile 375) ; une valeur réglée hors bureau ne
+vaut que pour ce format et un point permet de la retirer. Les paramètres ne
+proposent que des tokens. Le même éditeur sert aux composants : un état
+autre que « Par défaut » n'enregistre que des différences de style. Les
+images choisies sont copiées dans `.studio/assets/`.
+
+Preuves : tests unitaires des opérations sur l'arbre ; e2e (page, bloc,
+texte, valeur mobile rétablie, déplacement, image locale affichée, instance
+supprimée au clavier, texte et survol d'un composant modifiés).

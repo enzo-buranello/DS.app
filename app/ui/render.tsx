@@ -86,13 +86,23 @@ type Ctx = {
   /** Patchs d'état par identifiant de nœud. */
   patches?: Record<string, Style>;
   depth?: number;
+  /** Dossier du projet : les images locales s'y trouvent. */
+  base?: string;
+  /** Contenu d'une instance : pas sélectionnable séparément. */
+  inert?: boolean;
 };
+
+/** Image du projet (« assets/… ») ou adresse web. */
+export const assetUrl = (src: string, base?: string) =>
+  /^https?:|^data:/.test(src) || !base
+    ? src
+    : `studio://asset/${encodeURIComponent(base)}/${src}`;
 
 export function Render({ node, ctx }: { node: Node; ctx: Ctx }) {
   const depth = ctx.depth ?? 0;
   if (depth > 12) return null;
   const style = css(node, resolve(node, ctx.bp, ctx.patches?.[node.id]));
-  const data = { 'data-node': node.id };
+  const data = ctx.inert ? {} : { 'data-node': node.id };
   if (node.kind === 'text')
     return (
       <p style={style} {...data}>
@@ -101,7 +111,7 @@ export function Render({ node, ctx }: { node: Node; ctx: Ctx }) {
     );
   if (node.kind === 'image')
     return node.src ? (
-      <img style={style} src={node.src} alt="" {...data} />
+      <img style={style} src={assetUrl(node.src, ctx.base)} alt="" {...data} />
     ) : (
       <div style={style} {...data} />
     );
@@ -111,7 +121,7 @@ export function Render({ node, ctx }: { node: Node; ctx: Ctx }) {
       <div style={style} {...data}>
         <Render
           node={c.root}
-          ctx={{ ...ctx, patches: undefined, depth: depth + 1 }}
+          ctx={{ ...ctx, patches: undefined, inert: true, depth: depth + 1 }}
         />
       </div>
     ) : null;

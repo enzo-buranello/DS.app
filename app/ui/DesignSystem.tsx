@@ -1,5 +1,20 @@
 import { useEffect, useState } from 'react';
-import { CaretRight, FigmaLogo, Plus, Trash } from '@phosphor-icons/react';
+import {
+  ArrowLeft,
+  CaretRight,
+  FigmaLogo,
+  PencilSimple,
+  Plus,
+  Trash,
+} from '@phosphor-icons/react';
+import type { Breakpoint, Node, Style } from '../shared/project.js';
+import {
+  Canvas,
+  ElementSettings,
+  FormatSwitch,
+  setStyle,
+  Structure,
+} from './Editor.js';
 import { contains, flatten, tree, type Folder } from '../shared/folders.js';
 import {
   componentStates,
@@ -53,7 +68,9 @@ type Props = {
   onSave: (p: Project) => void;
 };
 
-export function DesignNav(props: Props & { onFigma: () => void }) {
+export function DesignNav(
+  props: Props & { onFigma: () => void; onAddComponent: () => void },
+) {
   const { project } = props;
   function add(kind: FoundationKind, label: string) {
     const f = project.foundations;
@@ -80,18 +97,20 @@ export function DesignNav(props: Props & { onFigma: () => void }) {
         <section key={kind} className="group">
           <div className="group-head">
             <h3>{label}</h3>
-            {kind !== 'components' && (
-              <button
-                className="icon-btn"
-                aria-label={`Ajouter ${label}`}
-                disabled={
-                  kind === 'shadows' && !entries(project, 'colors').length
-                }
-                onClick={() => add(kind, label)}
-              >
-                <Plus />
-              </button>
-            )}
+            <button
+              className="icon-btn"
+              aria-label={`Ajouter ${label}`}
+              disabled={
+                kind === 'shadows' && !entries(project, 'colors').length
+              }
+              onClick={() =>
+                kind === 'components'
+                  ? props.onAddComponent()
+                  : add(kind, label)
+              }
+            >
+              <Plus />
+            </button>
           </div>
           <NavFolder
             folder={tree(entries(project, kind))}
@@ -302,7 +321,11 @@ function Sample({ kind, id }: { kind: FoundationKind; id: string }) {
 }
 
 export function DesignSettings(
-  props: Props & { state: CompState; onState: (s: CompState) => void },
+  props: Props & {
+    state: CompState;
+    onState: (s: CompState) => void;
+    onEdit: (id: string) => void;
+  },
 ) {
   const { project, sel } = props;
   if (!sel) return <aside className="panel right" aria-label="Paramètres" />;
@@ -327,23 +350,14 @@ export function DesignSettings(
           value={c.name}
           onChange={(name) => set({ ...c, name })}
         />
-        <label className="field">
-          État
-          <select
-            value={props.state}
-            onChange={(e) => props.onState(e.target.value as CompState)}
-          >
-            {(['default', ...componentStates] as CompState[]).map((s) => (
-              <option
-                key={s}
-                value={s}
-                disabled={s !== 'default' && !c.states[s]}
-              >
-                {stateLabels[s]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <StateSelect
+          value={props.state}
+          onChange={props.onState}
+          available={(s) => s === 'default' || !!c.states[s]}
+        />
+        <button onClick={() => props.onEdit(sel.id)}>
+          <PencilSimple /> Modifier
+        </button>
         <Remove disabled={used} onClick={() => set(null)} />
       </aside>
     );
@@ -516,5 +530,197 @@ function Remove(p: { disabled: boolean; onClick: () => void }) {
     <button className="ghost danger" disabled={p.disabled} onClick={p.onClick}>
       <Trash /> Supprimer
     </button>
+  );
+}
+
+// Le module complet : planche du design system, ou éditeur d'un composant.
+export function DesignModule(props: {
+  project: Project;
+  path: string;
+  theme: Theme;
+  onSave: (p: Project) => void;
+  onFigma: () => void;
+  bar: React.ReactNode;
+}) {
+  const { project } = props;
+  const [sel, setSel] = useState<DSSelection>(null);
+  const [state, setState] = useState<CompState>('default');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [node, setNode] = useState<string | null>(null);
+  const [bp, setBp] = useState<Breakpoint>('desktop');
+  useEffect(() => {
+    setSel(null);
+    setEditing(null);
+  }, [props.path]);
+  const select = (s: DSSelection) => {
+    setSel(s);
+    setState('default');
+  };
+  const ds = { project, sel, onSelect: select, onSave: props.onSave };
+  const settings = (
+    <DesignSettings
+      {...ds}
+      state={state}
+      onState={setState}
+      onEdit={(id) => {
+        setEditing(id);
+        setNode(null);
+      }}
+    />
+  );
+  const c = editing ? project.components[editing] : undefined;
+
+  if (!c || !editing)
+    return (
+      <>
+        <DesignNav
+          {...ds}
+          onFigma={props.onFigma}
+          onAddComponent={() => {
+            const name = `Composant ${Object.keys(project.components).length + 1}`;
+            const id = slug(name, project.components);
+            props.onSave({
+              ...project,
+              components: {
+                ...project.components,
+                [id]: {
+                  name,
+                  root: {
+                    id: 'root',
+                    kind: 'box',
+                    name,
+                    style: { desktop: { direction: 'row', width: 'hug' } },
+                    children: [{ id: 'text-1', kind: 'text', text: name }],
+                  },
+                  states: {},
+                },
+              },
+            });
+            select({ kind: 'components', id });
+            setEditing(id);
+            setNode(null);
+          }}
+        />
+        <main className="canvas" aria-label="Design system">
+          <DesignBoard
+            {...ds}
+            theme={props.theme}
+            state={state}
+            onImport={props.onFigma}
+          />
+          {props.bar}
+        </main>
+        {settings}
+      </>
+    );
+
+  // Édition d'un composant ; un état autre que « Par défaut » ne change que le style.
+  const patches = state === 'default' ? undefined : c.states[state];
+  const setComponent = (next: typeof c) =>
+    props.onSave({
+      ...project,
+      components: { ...project.components, [editing]: next },
+    });
+  const onRoot = (root: Node) => setComponent({ ...c, root });
+  const editor = {
+    project,
+    root: c.root,
+    onRoot,
+    sel: node,
+    onSelect: setNode,
+  };
+  return (
+    <>
+      <aside className="panel left">
+        <button className="ghost back" onClick={() => setEditing(null)}>
+          <ArrowLeft /> Design system
+        </button>
+        <h2>{c.name}</h2>
+        <Structure {...editor} />
+      </aside>
+      <main className="canvas" aria-label={c.name}>
+        <div className="canvas-head">
+          <FormatSwitch bp={bp} onChange={setBp} />
+        </div>
+        <Canvas
+          {...editor}
+          bp={bp}
+          theme={props.theme}
+          base={props.path}
+          patches={patches}
+        />
+      </main>
+      {node ? (
+        <aside className="panel right" aria-label="Paramètres">
+          <ElementSettings
+            {...editor}
+            bp={bp}
+            base={props.path}
+            stateOnly={state !== 'default'}
+            own={(id) =>
+              state === 'default'
+                ? findStyle(c.root, id, bp)
+                : c.states[state]?.[id]
+            }
+            onStyle={(id, key, value) => {
+              if (state === 'default')
+                return onRoot(setStyle(c.root, id, bp, key, value));
+              const at: Style = { ...c.states[state]?.[id], [key]: value };
+              if (value === undefined) delete at[key];
+              setComponent({
+                ...c,
+                states: {
+                  ...c.states,
+                  [state]: { ...c.states[state], [id]: at },
+                },
+              });
+            }}
+            header={
+              <StateSelect
+                value={state}
+                onChange={setState}
+                available={() => true}
+              />
+            }
+          />
+        </aside>
+      ) : (
+        settings
+      )}
+    </>
+  );
+}
+
+const findStyle = (
+  root: Node,
+  id: string,
+  bp: Breakpoint,
+): Style | undefined => {
+  if (root.id === id) return root.style?.[bp];
+  for (const child of root.children ?? []) {
+    const hit = findStyle(child, id, bp);
+    if (hit) return hit;
+  }
+};
+
+function StateSelect(props: {
+  value: CompState;
+  onChange: (s: CompState) => void;
+  available: (s: CompState) => boolean;
+}) {
+  return (
+    <label className="field">
+      État
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value as CompState)}
+      >
+        {(['default', ...componentStates] as CompState[]).map((s) => (
+          <option key={s} value={s} disabled={!props.available(s)}>
+            {stateLabels[s]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

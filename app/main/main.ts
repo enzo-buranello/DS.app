@@ -3,9 +3,13 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  net,
+  protocol,
   safeStorage,
   screen,
 } from 'electron';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +30,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 if (process.env.STUDIO_USER_DATA)
   app.setPath('userData', process.env.STUDIO_USER_DATA);
 const picks = process.env.STUDIO_PICK_DIRS?.split(path.delimiter) ?? [];
+const pickedFiles = process.env.STUDIO_PICK_FILES?.split(path.delimiter) ?? [];
+
+// Images du projet (.studio/assets) servies par studio://asset/<dossier>/…
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'studio', privileges: { standard: true, secure: true } },
+]);
 
 const recents = new Recents(
   path.join(app.getPath('userData'), 'projects.json'),
@@ -125,6 +135,28 @@ const api: StudioApi = {
     });
   },
   hasFigmaToken: async () => !!(await figmaToken()),
+  async importImage(dir) {
+    await known(dir);
+    const file =
+      pickedFiles.shift() ??
+      (
+        await dialog.showOpenDialog(win!, {
+          properties: ['openFile'],
+          filters: [
+            {
+              name: 'Images',
+              extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'],
+            },
+          ],
+        })
+      ).filePaths[0];
+    if (!file) return null;
+    const bytes = await fs.readFile(file);
+    const name = `${createHash('sha1').update(bytes).digest('hex').slice(0, 16)}${path.extname(file).toLowerCase()}`;
+    await fs.mkdir(path.join(dir, '.studio', 'assets'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.studio', 'assets', name), bytes);
+    return `assets/${name}`;
+  },
 };
 for (const [name, fn] of Object.entries(api))
   ipcMain.handle(name, (_e, ...args) =>
@@ -132,6 +164,16 @@ for (const [name, fn] of Object.entries(api))
   );
 
 app.whenReady().then(() => {
+  protocol.handle('studio', async (req) => {
+    const [, dir, ...rest] = new URL(req.url).pathname.split('/');
+    const root = decodeURIComponent(dir);
+    await known(root);
+    const assets = path.join(root, '.studio', 'assets');
+    const file = path.join(root, '.studio', ...rest.map(decodeURIComponent));
+    if (!file.startsWith(assets + path.sep))
+      return new Response(null, { status: 404 });
+    return net.fetch(pathToFileURL(file).toString());
+  });
   // La fenêtre tient toujours dans l'écran qui l'affiche.
   const area = screen.getPrimaryDisplay().workAreaSize;
   win = new BrowserWindow({

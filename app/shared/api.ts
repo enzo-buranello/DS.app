@@ -19,6 +19,8 @@ export type StudioApi = {
     source: { url?: string; token?: string; variables?: string },
   ): Promise<Project>;
   hasFigmaToken(): Promise<boolean>;
+  /** Choisit une image et la copie dans le projet ; renvoie « assets/… ». */
+  importImage(path: string): Promise<string | null>;
 };
 export const apiMethods = [
   'list',
@@ -29,4 +31,5 @@ export const apiMethods = [
   'design',
   'figmaImport',
   'hasFigmaToken',
+  'importImage',
 ] as const;

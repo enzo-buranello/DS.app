@@ -13,15 +13,8 @@ import {
 } from '@phosphor-icons/react';
 import type { Opened, StudioApi } from '../shared/api.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
-import {
-  DesignBoard,
-  DesignNav,
-  DesignSettings,
-  FigmaDialog,
-  type CompState,
-  type DSSelection,
-  type FigmaSource,
-} from './DesignSystem.js';
+import { DesignModule, FigmaDialog, type FigmaSource } from './DesignSystem.js';
+import { PagesModule } from './Pages.js';
 import { PromptBar, type AiState } from './PromptBar.js';
 import type { Theme } from './render.js';
 
@@ -180,8 +173,6 @@ function Shell(props: {
   const [module, setModule] = useState<ModuleId>('design');
   const [menu, setMenu] = useState(false);
   const [theme, setTheme] = useState<Theme>('light');
-  const [sel, setSel] = useState<DSSelection>(null);
-  const [state, setState] = useState<CompState>('default');
   const [ai, setAi] = useState<AiState>({ status: 'idle' });
   const settings = useRef<HTMLDialogElement>(null);
   const figma = useRef<HTMLDialogElement>(null);
@@ -195,13 +186,8 @@ function Shell(props: {
   // Autre projet ou autre dossier : rien ne reste en attente.
   useEffect(() => {
     setAi({ status: 'idle' });
-    setSel(null);
   }, [path]);
   const current = modules.find((m) => m.id === module)!;
-  const select = (s: DSSelection) => {
-    setSel(s);
-    setState('default');
-  };
 
   // L'IA applique son résultat sur le canevas ; « Garder » ou « Annuler ».
   async function runAi(task: () => Promise<Project>) {
@@ -215,7 +201,6 @@ function Shell(props: {
       setAi({ status: 'error' });
     }
   }
-  const ds = { project, sel, onSelect: select, onSave: props.onSave };
 
   return (
     <div className="shell">
@@ -281,15 +266,13 @@ function Shell(props: {
         ))}
       </nav>
       {module === 'design' ? (
-        <>
-          <DesignNav {...ds} onFigma={() => figma.current?.showModal()} />
-          <main className="canvas" aria-label={current.label}>
-            <DesignBoard
-              {...ds}
-              theme={theme}
-              state={state}
-              onImport={() => figma.current?.showModal()}
-            />
+        <DesignModule
+          project={project}
+          path={path}
+          theme={theme}
+          onSave={props.onSave}
+          onFigma={() => figma.current?.showModal()}
+          bar={
             <PromptBar
               state={ai}
               placeholder="Décrire le design system"
@@ -300,9 +283,15 @@ function Shell(props: {
                 setAi({ status: 'idle' });
               }}
             />
-          </main>
-          <DesignSettings {...ds} state={state} onState={setState} />
-        </>
+          }
+        />
+      ) : module === 'pages' ? (
+        <PagesModule
+          project={project}
+          path={path}
+          theme={theme}
+          onSave={props.onSave}
+        />
       ) : (
         <>
           <aside className="panel left">

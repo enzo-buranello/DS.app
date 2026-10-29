@@ -650,3 +650,105 @@ code {
   font-weight: var(--ui-fw-regular);
   opacity: 0.6;
 }
+
+/* --- Éditeur : format, canevas, structure --- */
+.canvas-head {
+  display: flex;
+  justify-content: center;
+  padding: var(--ui-s-2);
+}
+.segmented {
+  display: inline-flex;
+  gap: var(--ui-s-1);
+  padding: var(--ui-s-1);
+  background: var(--ui-surface);
+  border-radius: var(--ui-r-item);
+}
+.stage {
+  flex: 1;
+  overflow: auto;
+  padding: var(--ui-s-8);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.artboard {
+  flex: none;
+  min-height: 100%;
+  background: var(--c-background, var(--ui-surface));
+  color: var(--c-text, var(--ui-text));
+  box-shadow: var(--ui-shadow-pop);
+}
+.artboard [data-node] {
+  cursor: default;
+}
+.artboard [data-node]:hover:not(:has([data-node]:hover)) {
+  outline: 1px solid var(--ui-select-hover);
+  outline-offset: -1px;
+}
+.back {
+  align-self: flex-start;
+}
+.tree,
+.tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--ui-r-control);
+}
+.tree-row .item {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-row[aria-current='true'] {
+  background: var(--ui-active);
+}
+.tree-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--ui-focus);
+}
+.tree-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--ui-focus);
+}
+.tree-row.drop-inside {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+.caret-btn {
+  width: var(--ui-s-6);
+  min-height: var(--ui-s-6);
+}
+.caret-space {
+  width: var(--ui-s-6);
+  flex: none;
+}
+.caret {
+  transition: transform var(--ui-duration);
+}
+.caret.open {
+  transform: rotate(90deg);
+}
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s-2);
+}
+.override {
+  width: var(--ui-s-2);
+  height: var(--ui-s-2);
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-text);
+}
+/* Le canevas ne reçoit rien du style de l'interface. */
+.artboard p,
+.board p {
+  color: inherit;
+}
