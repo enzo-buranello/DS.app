@@ -1,7 +1,10 @@
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import {
   diff,
   hashes as hashesOf,
@@ -14,8 +17,10 @@ import {
   type Target,
 } from '../shared/build.js';
 import type { Project } from '../shared/project.js';
-import { decide } from './guard.js';
+import { decide, inside } from './guard.js';
 import { atomicWrite, projectFile } from './projects.js';
+import { accountNow, claudeEnv } from './account.js';
+import { askJson } from './compat.js';
 
 // Agent Développement : écrit et construit l'application, une cible à la fois,
 // dans <projet>/code/<cible>. Il lit le projet, n'écrit que dans sa cible.
@@ -134,6 +139,13 @@ export async function generate(
         .map((s) => `${s} : ${JSON.stringify(changes[s])}`)
         .join('\n')}`,
     ].join('\n\n');
+    const compat = [
+      `Cible : ${targetLabels[target]}. ${conventions[target]}`,
+      `Projet complet :\n${JSON.stringify(project)}`,
+      `Changements, dans l'ordre :\n${steps
+        .map((s) => `${s} : ${JSON.stringify(changes[s])}`)
+        .join('\n')}`,
+    ].join('\n\n');
     ok = await run(
       prompt,
       dir,
@@ -143,6 +155,7 @@ export async function generate(
         await onWrite(f);
       },
       changes,
+      { prompt: compat, target },
     );
   }
   const next: BuildState = {
@@ -187,6 +200,23 @@ export async function edit(
   ]
     .filter(Boolean)
     .join('\n\n');
+  const compat = [
+    `Cible : ${targetLabels[target]}. ${conventions[target]}`,
+    `Projet (lecture) :\n${await fs
+      .readFile(projectFile(dir), 'utf8')
+      .then((t) => t.slice(0, 200_000))
+      .catch(() => '{}')}`,
+    scope.selector || scope.file
+      ? `Portée élément : ne modifie que cet élément.\n${JSON.stringify(scope)}`
+      : 'Portée globale : tout le code de la cible.',
+    images.length &&
+      `Références visuelles (chemins) :\n${images.map((i) => path.join(dir, '.studio', i)).join('\n')}`,
+    `Instruction : ${instruction}`,
+    `Fichiers actuels :\n${await current(out)}`,
+    'Retouche le code existant, au plus juste, et renvoie les fichiers complets modifiés.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const ok = await run(
     prompt,
     dir,
@@ -200,6 +230,7 @@ export async function edit(
       await onWrite(f);
     },
     { instruction, scope, images },
+    { prompt: compat, target },
   );
   if (!ok) {
     await restore(out, originals);
@@ -219,12 +250,35 @@ export async function restore(
     else await fs.writeFile(path.join(out, f), text);
 }
 
+/** Fichiers qu'une commande rm ou mv va retirer, relatifs au dossier. */
+export async function removed(cmd: string, out: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const part of cmd.split('&&')) {
+    const [prog, ...args] = part.trim().split(/\s+/);
+    if (prog !== 'rm' && prog !== 'mv') continue;
+    const paths = args.filter((a) => !a.startsWith('-'));
+    for (const a of prog === 'mv' ? paths.slice(0, -1) : paths) {
+      const abs = path.resolve(out, a);
+      const st = await fs.stat(abs).catch(() => null);
+      if (st?.isFile()) files.push(path.relative(out, abs));
+      else if (st?.isDirectory())
+        files.push(
+          ...(await listFiles(abs)).map((f) =>
+            path.relative(out, path.join(abs, f)),
+          ),
+        );
+    }
+  }
+  return files;
+}
+
 async function run(
   prompt: string,
   dir: string,
   out: string,
   onWrite: OnWrite,
   fake: unknown,
+  compat?: { prompt: string; target: Target },
 ) {
   if (process.env.STUDIO_FAKE_GENERATE) {
     // Simulation : l'agent écrit ce qu'il a reçu, et une page pour l'aperçu.
@@ -243,6 +297,8 @@ async function run(
     }
     return process.env.STUDIO_FAKE_GENERATE !== 'fail';
   }
+  if (compat && accountNow().provider !== 'anthropic')
+    return runCompat(compat.prompt, out, onWrite, compat.target);
   try {
     for await (const m of query({
       prompt,
@@ -251,21 +307,152 @@ async function run(
         cwd: out,
         tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
         settingSources: [],
+        env: claudeEnv(),
         permissionMode: 'default',
         maxTurns: 150,
         canUseTool: async (tool, input) => {
           const d = decide(tool, input, dir, out);
+          if (process.env.STUDIO_DEBUG)
+            console.log(
+              '[dev]',
+              d.ok ? 'ok' : 'refus',
+              tool,
+              input.command ?? input.file_path ?? '',
+            );
           if (!d.ok) return { behavior: 'deny', message: d.why ?? 'Refusé' };
           const file = input.file_path as string | undefined;
           if (file && /^(Write|Edit|MultiEdit)$/.test(tool))
             await onWrite(path.relative(out, path.resolve(out, file)));
+          // Fichiers supprimés ou déplacés : gardés pour Annuler.
+          if (tool === 'Bash')
+            for (const f of await removed(String(input.command), out))
+              await onWrite(f);
           return { behavior: 'allow', updatedInput: input };
         },
       },
-    }))
+    })) {
+      if (process.env.STUDIO_DEBUG && m.type === 'assistant')
+        for (const c of m.message.content)
+          if (c.type === 'text')
+            console.log('[dev:text]', c.text.slice(0, 300));
       if (m.type === 'result') return m.subtype === 'success';
+    }
   } catch {
     return false;
+  }
+  return false;
+}
+
+// --- Hors Claude : plan de fichiers JSON, écrit par l'app ---
+
+const PLAN = `Tu es le développeur du projet. Tu n'as aucun outil fichier : tu décris les fichiers, l'app les écrit.
+Réponds uniquement avec un objet JSON :
+{ "files": [ { "path": "chemin/relatif", "content": "contenu complet" } ] }
+- Chemins relatifs à la cible, jamais absolus, sans « .. », sans node_modules.
+- Fichiers complets, prêts à construire, dans l'ordre tokens → composants → pages → contenus.
+- Aucune explication, aucun texte hors du JSON.`;
+
+const filesSchema = z
+  .object({
+    files: z
+      .array(
+        z
+          .object({
+            path: z.string().min(1).max(300),
+            content: z.string(),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const exec = promisify(execFile);
+
+const textFile = /\.(tsx?|jsx?|mjs|cjs|css|html|json|swift|md)$/i;
+
+/** Fichiers texte de la cible, bornés, pour une retouche hors Claude. */
+async function current(out: string) {
+  const parts: string[] = [];
+  let total = 0;
+  for (const f of await listFiles(out)) {
+    if (!textFile.test(f)) continue;
+    const text = await fs.readFile(path.join(out, f), 'utf8').catch(() => null);
+    if (!text) continue;
+    total += text.length;
+    if (total > 150_000) break;
+    parts.push(`--- ${f}\n${text}`);
+  }
+  return parts.join('\n\n');
+}
+
+export function safePath(out: string, rel: string) {
+  const p = rel.replace(/\\/g, '/');
+  if (!p || path.isAbsolute(p)) return false;
+  if (p.split('/').some((s) => s === '..' || s === 'node_modules'))
+    return false;
+  return inside(out, p);
+}
+
+async function plan(prompt: string, out: string, onWrite: OnWrite) {
+  const { files } = await askJson(PLAN, prompt, filesSchema);
+  for (const file of files) {
+    if (!safePath(out, file.path)) throw new Error('Chemin invalide');
+    const abs = path.join(out, file.path);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await onWrite(file.path);
+    await atomicWrite(abs, file.content);
+  }
+  return files.length > 0;
+}
+
+/** Construction de la cible ; null si elle passe, sinon la sortie d'erreur. */
+async function build(out: string, target: Target): Promise<string | null> {
+  const exists = (f: string) =>
+    fs.stat(path.join(out, f)).then(
+      () => true,
+      () => false,
+    );
+  if (target === 'html')
+    return (await exists('index.html')) ? null : 'index.html manquant';
+  // shortcut: SwiftUI n'est pas compilé hors Claude, l'aperçu s'en charge.
+  if (target === 'swiftui') return null;
+  if (!(await exists('package.json'))) return 'package.json manquant';
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const opts = { cwd: out, timeout: 600_000, maxBuffer: 20_000_000 };
+  try {
+    if (!(await exists('node_modules')))
+      await exec(npm, ['install', '--no-audit', '--no-fund'], opts);
+    await exec(npm, ['run', 'build'], opts);
+    return null;
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    return [err.stdout, err.stderr, err.message]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 4000);
+  }
+}
+
+/** Plan de fichiers, écriture validée, construction, une seule réparation. */
+async function runCompat(
+  prompt: string,
+  out: string,
+  onWrite: OnWrite,
+  target: Target,
+) {
+  let message = prompt;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (!(await plan(message, out, onWrite))) return false;
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('auth:')) throw e;
+      return false;
+    }
+    const failed = await build(out, target);
+    if (!failed) return true;
+    if (attempt) return false;
+    message = `${prompt}\n\nLa construction a échoué :\n${failed}\nCorrige les fichiers et renvoie-les complets.`;
   }
   return false;
 }

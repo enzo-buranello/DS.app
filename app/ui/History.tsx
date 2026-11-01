@@ -59,6 +59,11 @@ export function HistoryButton(props: {
                     {e.scope === 'element' ? 'Élément' : 'Global'} ·{' '}
                     {time(e.at)}
                   </span>
+                  {e.choices?.map((c) => (
+                    <span key={c} className="muted ellipsis">
+                      {c}
+                    </span>
+                  ))}
                   {e.images && (
                     <span className="thumbs">
                       {e.images.map((src) => (

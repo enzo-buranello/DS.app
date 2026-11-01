@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Preview, Target } from '../shared/build.js';
 import { listFiles } from './generate.js';
+import { secretEnv } from './secrets.js';
 
 // Aperçu du code généré. Web : serveur de développement du projet (statique
 // pour HTML/CSS), un par projet. SwiftUI : compilation pour le simulateur
@@ -73,7 +74,11 @@ async function staticServer(out: string): Promise<Server> {
   return { out, url: `http://127.0.0.1:${port}/`, stop: () => server.close() };
 }
 
-async function devServer(out: string, target: Target): Promise<Server> {
+async function devServer(
+  out: string,
+  target: Target,
+  env: Record<string, string>,
+): Promise<Server> {
   const has = (f: string) =>
     fs.stat(path.join(out, f)).then(
       () => true,
@@ -89,6 +94,7 @@ async function devServer(out: string, target: Target): Promise<Server> {
       : ['--port', String(port), '--strictPort', '--host', '127.0.0.1'];
   const proc = spawn('npm', ['run', 'dev', '--', ...args], {
     cwd: out,
+    env: { ...process.env, ...env },
     stdio: 'ignore',
     detached: true,
   });
@@ -119,7 +125,9 @@ export async function webPreview(
   cur?.stop();
   servers.delete(dir);
   const s =
-    target === 'html' ? await staticServer(out) : await devServer(out, target);
+    target === 'html'
+      ? await staticServer(out)
+      : await devServer(out, target, await secretEnv(dir));
   servers.set(dir, s);
   return { url: s.url };
 }

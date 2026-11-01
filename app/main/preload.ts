@@ -13,4 +13,9 @@ contextBridge.exposeInMainWorld('studio', {
     ipcRenderer.on('activity', on);
     return () => ipcRenderer.off('activity', on);
   },
+  onAgent(fn: (e: unknown) => void) {
+    const on = (_e: unknown, e: unknown) => fn(e);
+    ipcRenderer.on('agent', on);
+    return () => ipcRenderer.off('agent', on);
+  },
 });

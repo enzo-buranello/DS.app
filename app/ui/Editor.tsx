@@ -867,7 +867,7 @@ export function Structure(props: EditorProps) {
       <li key={n.id}>
         <div
           className={`tree-row ${mark}`}
-          style={{ paddingLeft: `calc(${depth} * var(--ui-s-4))` }}
+          style={{ paddingLeft: `calc(${depth} * var(--ui-s-2))` }}
           aria-current={current === n.id ? 'true' : undefined}
           draggable={n.id !== root.id}
           onDragStart={(e) => {
@@ -910,7 +910,7 @@ export function Structure(props: EditorProps) {
             <span className="caret-space" />
           )}
           <button className="ghost item" onClick={() => props.onSelect(n.id)}>
-            <Icon /> {label(n, project)}
+            <Icon /> <span className="ellipsis">{label(n, project)}</span>
           </button>
         </div>
         {open && n.children?.length ? (

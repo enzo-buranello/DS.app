@@ -34,10 +34,11 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
+      STUDIO_FAKE_NAME: 'Carte maison',
       STUDIO_PICK_DIRS: dir,
       STUDIO_PICK_FILES: path.resolve('build/icon.png'),
       STUDIO_FAKE_AGENT: path.resolve('tests/fixtures/design.json'),
-      STUDIO_FAKE_NAME: 'Carte maison',
     },
   });
   const page = await app.firstWindow();
@@ -53,9 +54,10 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
     await page.getByRole('menuitem', { name: item, exact: true }).click();
   };
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
   await page.getByLabel('Instruction').fill('Une boulangerie');
   await page.getByLabel('Instruction').press('Enter');
   await page.getByRole('button', { name: 'Garder' }).click();
@@ -205,12 +207,13 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
 
   // Renommer un composant d'un double-clic dans le design system.
   await page.getByRole('button', { name: 'Design system' }).click();
-  await page
+  const target = page
     .locator('.panel.left')
-    .getByRole('button', { name: 'Carte maison' })
-    .dblclick();
-  await page.locator('.panel.left').getByLabel('Nom').fill('Carte');
-  await page.locator('.panel.left').getByLabel('Nom').press('Enter');
+    .getByRole('button', { name: 'Carte maison' });
+  await target.dispatchEvent('dblclick');
+  const rename = page.locator('.panel.left input.name-input');
+  await rename.fill('Carte');
+  await rename.blur();
   await expect
     .poll(async () => (await saved()).components.bonjour.name)
     .toBe('Carte');

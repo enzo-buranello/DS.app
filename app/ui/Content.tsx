@@ -197,55 +197,57 @@ export function ContentModule(props: {
       <main className="canvas" aria-label="Contenus">
         {c ? (
           <div className="table-wrap">
-            <table className="content-table">
-              <thead>
-                <tr>
-                  {c.fields.map((f) => (
-                    <th key={f.id}>
-                      <button
-                        className="ghost th"
-                        aria-current={f.id === field ? 'true' : undefined}
-                        onClick={() => setField(f.id)}
-                      >
-                        {icons[f.type]} {f.name}
-                      </button>
-                    </th>
-                  ))}
-                  <th className="th-add">
-                    <button
-                      className="icon-btn"
-                      aria-label="Ajouter un champ"
-                      onClick={addField}
-                    >
-                      <Plus />
-                    </button>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.items.map((item) => (
-                  <tr key={item.id}>
+            <div className="table-scroll">
+              <table className="content-table">
+                <thead>
+                  <tr>
                     {c.fields.map((f) => (
-                      <td key={f.id}>{cell(item, f)}</td>
+                      <th key={f.id}>
+                        <button
+                          className="ghost th"
+                          aria-current={f.id === field ? 'true' : undefined}
+                          onClick={() => setField(f.id)}
+                        >
+                          {icons[f.type]} {f.name}
+                        </button>
+                      </th>
                     ))}
-                    <td className="row-actions">
+                    <th className="th-add">
                       <button
                         className="icon-btn"
-                        aria-label={`Supprimer ${item.id}`}
-                        onClick={() =>
-                          setCollection({
-                            ...c,
-                            items: c.items.filter((i) => i.id !== item.id),
-                          })
-                        }
+                        aria-label="Ajouter un champ"
+                        onClick={addField}
                       >
-                        <Trash />
+                        <Plus />
                       </button>
-                    </td>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {c.items.map((item) => (
+                    <tr key={item.id}>
+                      {c.fields.map((f) => (
+                        <td key={f.id}>{cell(item, f)}</td>
+                      ))}
+                      <td className="row-actions">
+                        <button
+                          className="icon-btn"
+                          aria-label={`Supprimer ${item.id}`}
+                          onClick={() =>
+                            setCollection({
+                              ...c,
+                              items: c.items.filter((i) => i.id !== item.id),
+                            })
+                          }
+                        >
+                          <Trash />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <button className="ghost add-row" onClick={addItem}>
               <Plus /> Ajouter
             </button>

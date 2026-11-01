@@ -5,6 +5,8 @@ playwright-report/
 .studio/
 .ds-studio/
 .claude/
+workspace/archives/
+tests/live/out/
 .env
 .env.*
 *.log

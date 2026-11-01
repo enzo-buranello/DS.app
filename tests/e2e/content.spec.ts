@@ -11,6 +11,7 @@ test('contenus : collection, tableau, liste et champ liés', async () => {
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: dir,
       STUDIO_PICK_FILES: path.resolve('build/icon.png'),
     },
@@ -21,9 +22,10 @@ test('contenus : collection, tableau, liste et champ liés', async () => {
   const settings = page.getByLabel('Paramètres');
   const table = page.locator('.content-table');
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
 
   // Une collection « Produits » : Nom, Prix (nombre), Photo (image). Les
   // identifiants par défaut suivent les noms donnés.

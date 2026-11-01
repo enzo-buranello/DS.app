@@ -1,5 +1,5 @@
-// npm run app — installe DS-Studio comme une app du Mac (~/Applications).
-// Une copie d'Electron porte le nom et l'icône de DS-Studio ; son dossier
+// npm run app — installe Studio comme une app du Mac (~/Applications).
+// Une copie d'Electron porte le nom et l'icône de Studio ; son dossier
 // Resources/app pointe vers ce projet : l'app démarre sur le dernier build,
 // « npm run build » suffit ensuite. --force réinstalle.
 import { execFileSync } from 'node:child_process';
@@ -8,12 +8,12 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 
 if (process.platform !== 'darwin') {
-  console.error('DS-Studio.app : macOS seulement.');
+  console.error('Studio.app : macOS seulement.');
   process.exit(1);
 }
 const root = path.resolve(import.meta.dirname, '..');
 const electron = path.join(root, 'node_modules/electron/dist/Electron.app');
-const target = path.join(homedir(), 'Applications', 'DS-Studio.app');
+const target = path.join(homedir(), 'Applications', 'Studio.app');
 const run = (cmd, ...args) => execFileSync(cmd, args, { stdio: 'inherit' });
 
 if (!existsSync(path.join(root, 'dist/main.js'))) {
@@ -38,7 +38,7 @@ if (
   !process.argv.includes('--force') &&
   version(target) === version(electron)
 ) {
-  console.log(`DS-Studio est déjà installée : ${target}`);
+  console.log(`Studio est déjà installée : ${target}`);
   process.exit(0);
 }
 rmSync(target, { recursive: true, force: true });
@@ -52,13 +52,13 @@ copyFileSync(
 );
 const plist = path.join(target, 'Contents/Info.plist');
 for (const [key, value] of [
-  ['CFBundleName', 'DS-Studio'],
-  ['CFBundleDisplayName', 'DS-Studio'],
-  ['CFBundleIdentifier', 'local.ds-studio.app'],
+  ['CFBundleName', 'Studio'],
+  ['CFBundleDisplayName', 'Studio'],
+  ['CFBundleIdentifier', 'local.studio.app'],
 ])
   run('plutil', '-replace', key, '-string', value, plist);
 // Signature locale : la copie modifiée reste lançable par macOS.
 run('codesign', '--force', '--deep', '-s', '-', target);
 // Le Finder et le Dock relisent l'icône.
 run('touch', target);
-console.log(`DS-Studio installée : ${target}`);
+console.log(`Studio installée : ${target}`);

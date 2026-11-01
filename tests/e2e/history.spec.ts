@@ -11,6 +11,7 @@ test('IA par portée, historique regroupé, annuler et restaurer', async () => {
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: dir,
       STUDIO_FAKE_AGENT: path.resolve('tests/fixtures/design.json'),
       STUDIO_FAKE_NODE: path.resolve('tests/fixtures/node.json'),
@@ -31,9 +32,10 @@ test('IA par portée, historique regroupé, annuler et restaurer', async () => {
     await bar.press('Enter');
   };
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
 
   // Global : l'entrée porte l'instruction.
   await ask('Une boulangerie');
@@ -99,6 +101,7 @@ test('IA par portée, historique regroupé, annuler et restaurer', async () => {
   await page
     .getByLabel('Images', { exact: true })
     .setInputFiles({ name: 'ref.png', mimeType: 'image/png', buffer: png });
+  await expect(page.locator('.prompt-images li')).toHaveCount(1);
   await ask('Rends-le primaire');
   await page.getByRole('button', { name: 'Garder' }).click();
   await expect.poll(async () => (await shape())?.background).toBe('primary');

@@ -187,6 +187,18 @@ export const projectSchema = z
     components: z.record(id, componentSchema),
     pages: z.record(id, pageSchema),
     collections: z.record(id, collectionSchema),
+    /** Choix faits dans les QCM : l'IA ne repose pas la même question. */
+    decisions: z
+      .array(
+        z
+          .object({
+            question: z.string().min(1).max(200),
+            answer: z.string().min(1).max(200),
+          })
+          .strict(),
+      )
+      .max(100)
+      .optional(),
     figma: z
       .object({ fileKey: z.string(), importedAt: z.string().datetime() })
       .strict()

@@ -73,10 +73,11 @@ type Props = {
   sel: DSSelection;
   onSelect: (s: DSSelection) => void;
   onSave: (p: Project) => void;
+  onUpdate: Update;
 };
 
 export function DesignNav(
-  props: Props & { onFigma: () => void; onAddComponent: () => void },
+  props: Props & { onFigma?: () => void; onAddComponent: () => void },
 ) {
   const { project } = props;
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -97,9 +98,11 @@ export function DesignNav(
     <aside className="panel left">
       <div className="panel-head">
         <h2>Design system</h2>
-        <button className="ghost" onClick={props.onFigma}>
-          <FigmaLogo /> {project.figma ? 'Réimporter' : 'Importer'}
-        </button>
+        {props.onFigma && (
+          <button className="ghost" onClick={props.onFigma}>
+            <FigmaLogo /> {project.figma ? 'Réimporter' : 'Importer'}
+          </button>
+        )}
       </div>
       {groups.map(({ kind, label }) => (
         <section key={kind} className="group">
@@ -174,16 +177,16 @@ function NavFolder(
               const name = e.currentTarget.value.trim();
               props.onRename(null);
               if (!name) return;
-              props.onSave(
+              props.onUpdate((p) =>
                 kind === 'components'
-                  ? renameComponent(project, id, name)
+                  ? renameComponent(p, id, name)
                   : {
-                      ...project,
+                      ...p,
                       foundations: {
-                        ...project.foundations,
+                        ...p.foundations,
                         [kind]: {
-                          ...project.foundations[kind],
-                          [id]: { ...project.foundations[kind][id], name },
+                          ...p.foundations[kind],
+                          [id]: { ...p.foundations[kind][id], name },
                         },
                       },
                     },
@@ -291,16 +294,22 @@ export function FigmaDialog(props: {
 }
 
 export function DesignBoard(
-  props: Props & { theme: Theme; state: CompState; onImport: () => void },
+  props: Props & {
+    theme: Theme;
+    state: CompState;
+    onImport?: () => void;
+  },
 ) {
   const { project, sel } = props;
   const f = project.foundations;
   if (isEmpty(project))
     return (
       <div className="board empty">
-        <button onClick={props.onImport}>
-          <FigmaLogo /> Importer de Figma
-        </button>
+        {props.onImport && (
+          <button onClick={props.onImport}>
+            <FigmaLogo /> Importer de Figma
+          </button>
+        )}
       </div>
     );
   const pick = (kind: DSKind, id: string) => ({
@@ -600,7 +609,7 @@ export function DesignModule(props: {
   theme: Theme;
   onSave: (p: Project) => void;
   onUpdate: Update;
-  onFigma: () => void;
+  onFigma?: () => void;
   bar: (scope: Scope, target?: string) => React.ReactNode;
 }) {
   const { project } = props;
@@ -650,7 +659,13 @@ export function DesignModule(props: {
     setNode('root');
     setEdited('root');
   }
-  const ds = { project, sel, onSelect: select, onSave: props.onSave };
+  const ds = {
+    project,
+    sel,
+    onSelect: select,
+    onSave: props.onSave,
+    onUpdate: props.onUpdate,
+  };
   const c = editing ? project.components[editing] : undefined;
 
   if (!c || !editing)

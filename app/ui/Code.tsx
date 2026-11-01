@@ -14,6 +14,7 @@ import {
 } from '../shared/build.js';
 import { targets, type Project } from '../shared/project.js';
 import { PromptBar, type AiState } from './PromptBar.js';
+import type { Scope } from '../shared/api.js';
 
 // Module Code : langage, arborescence suivie en direct pendant que l'agent
 // écrit, aperçu de l'application au centre. La barre IA retouche le code,
@@ -41,6 +42,11 @@ export function CodeModule(props: {
   path: string;
   onSave: (p: Project) => void;
   onFlush: () => Promise<void>;
+  onMoved: (path: string) => void;
+  /** Compte perdu pendant une action : retour à la connexion. */
+  onSignOut: () => void;
+  /** Barre IA globale : l'agent transversal. */
+  bar: (scope: Scope) => React.ReactNode;
 }) {
   const { project } = props;
   const api = window.studio;
@@ -71,6 +77,14 @@ export function CodeModule(props: {
     void api.buildState(props.path).then(setState);
     void loadFiles();
   }, [props.path, target]);
+  // L'agent transversal a pu régénérer le code : état, fichiers, aperçu.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) return void (first.current = false);
+    void api.buildState(props.path).then(setState);
+    void loadFiles();
+    setReload((n) => n + 1);
+  }, [project.updatedAt]);
 
   // Le fichier en cours d'écriture reste visible : ses dossiers s'ouvrent.
   useEffect(
@@ -131,11 +145,19 @@ export function CodeModule(props: {
     setFailed(false);
     try {
       await props.onFlush();
-      const next = await api.generate(props.path);
+      const out = await api.generate(props.path);
+      if (!out) return;
+      // Premier code d'un projet sans dossier : il vient d'en recevoir un.
+      if (out.path !== props.path) return props.onMoved(out.path);
+      const next = out.state;
       setState(next);
       if (target && !next[target]?.ok) setFailed(true);
       setReload((n) => n + 1);
-    } catch {
+    } catch (e) {
+      if (String(e).includes('auth:out')) {
+        props.onSignOut();
+        return;
+      }
       setFailed(true);
     } finally {
       setBusy(false);
@@ -148,7 +170,11 @@ export function CodeModule(props: {
       await props.onFlush();
       const id = await api.code(props.path, text, pick ?? {}, images);
       setAi({ status: 'review', entry: id });
-    } catch {
+    } catch (e) {
+      if (String(e).includes('auth:out')) {
+        props.onSignOut();
+        return;
+      }
       setAi({ status: 'error' });
     }
     setState(await api.buildState(props.path));
@@ -300,7 +326,11 @@ export function CodeModule(props: {
             </button>
           </div>
         )}
-        {generated && (
+        {/* Élément visé, ou sa retouche pas encore tranchée : agent
+            Développement ; sinon l'agent transversal. */}
+        {!pick && ai.status === 'idle' ? (
+          props.bar({})
+        ) : (
           <PromptBar
             state={ai}
             placeholder={

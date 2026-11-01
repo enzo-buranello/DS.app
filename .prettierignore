@@ -1,4 +1,6 @@
 node_modules/
 dist/
 test-results/
+workspace/archives/
+tests/live/out/
 package-lock.json

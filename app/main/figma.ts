@@ -1,4 +1,5 @@
 import { query, type Query } from '@anthropic-ai/claude-agent-sdk';
+import { claudeEnv } from './account.js';
 
 // Import Figma : serveur MCP distant officiel de Figma, branché sur l'agent.
 // L'autorisation (OAuth) passe par Claude Code, qui garde la session dans le
@@ -33,11 +34,12 @@ export const figmaTools = [
   'get_libraries',
   'search_design_system',
 ].map((t) => `mcp__figma__${t}`);
-// Les connecteurs claude.ai du compte ne sont pas chargés.
-export const figmaEnv = {
-  ...process.env,
+// Les connecteurs claude.ai du compte ne sont pas chargés ; la session ou la
+// clé du compte global est la seule source d'authentification.
+export const figmaEnv = () => ({
+  ...claudeEnv(),
   ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
-};
+});
 
 const fake = () => process.env.STUDIO_FAKE_FIGMA;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -54,7 +56,7 @@ async function session<T>(fn: (q: Query) => Promise<T>) {
       tools: [],
       settingSources: [],
       mcpServers: figmaServer,
-      env: figmaEnv,
+      env: figmaEnv(),
     },
   });
   try {

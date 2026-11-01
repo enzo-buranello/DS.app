@@ -14,14 +14,16 @@ test('créer un projet, le renommer, changer de dossier, revenir', async () => {
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: [first, moved].join(path.delimiter),
     },
   });
   const page = await app.firstWindow();
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boutique');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
   await expect(page.getByRole('button', { name: 'Boutique' })).toBeVisible();
   for (const label of ['Design system', 'Pages', 'Contenus', 'Code'])
     await expect(page.getByRole('button', { name: label })).toBeVisible();
@@ -42,6 +44,7 @@ test('créer un projet, le renommer, changer de dossier, revenir', async () => {
   await expect(page.getByRole('menu')).toHaveCount(0);
   await page.getByRole('button', { name: 'Atelier' }).click();
   await page.getByRole('menuitem', { name: 'Tous les projets' }).click();
-  await expect(page.getByRole('button', { name: /Atelier/ })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await expect(page.getByRole('menuitem', { name: /Atelier/ })).toHaveCount(1);
   await app.close();
 });

@@ -1,10 +1,21 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 // Garde-fous de l'agent Développement : il lit le projet, n'écrit que dans
 // le dossier de sa cible et n'exécute que des commandes de construction.
 
+/** Chemin réel : liens résolus (/var → /private/var sur macOS), même s'il n'existe pas encore. */
+function real(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    const up = path.dirname(p);
+    return up === p ? p : path.join(real(up), path.basename(p));
+  }
+}
+
 export const inside = (dir: string, file: string) => {
-  const rel = path.relative(dir, path.resolve(dir, file));
+  const rel = path.relative(real(dir), real(path.resolve(dir, file)));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 

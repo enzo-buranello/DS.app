@@ -1,5 +1,10 @@
 # Journal de décisions du projet
 
+> Les entrées datées avant le 2026-10-29 décrivent des versions remplacées
+> (starter HTTP, modèle de nœuds, pont Figma). La refonte CMS commence à
+> l'entrée « Refonte : CMS de conception » : seules les décisions postérieures
+> décrivent le code actuel.
+
 ## V1 — Starter
 
 React permet d’employer exactement les mêmes composants dans le catalogue et
@@ -517,3 +522,241 @@ seul, pas de relecture, design system créé).
 - Mode test des pages : couche plein écran au-dessus de l'éditeur resté monté
   (retour à l'identique) ; liens « /page », états survol et appui ; aucune
   touche n'atteint l'éditeur. Pas de formulaire : aucun nœud de saisie.
+
+## 2026-10-29 — Agent transversal : l'IA, moteur de la création
+
+Problème : deux agents étanches. Design n'avait aucun outil : il réécrivait
+tout le projet en un bloc, sans lire l'état réel ; Développement ne
+s'atteignait que depuis le module Code. Aucune instruction ne pouvait toucher
+design system, pages et code à la fois ; pas de question, pas de mémoire des
+choix, pas d'avis.
+
+Décision : sans élément visé, la barre IA (tous les modules) appelle un agent
+transversal (`app/main/orchestrator.ts`) muni d'outils réels par un serveur
+MCP interne au SDK : `overview` (plan léger du projet, décisions, état du
+code), `read`, `write` et `update_node` (validés par le schéma à chaque
+écriture, références absentes signalées), `set_name`, `set_target`, `ask`
+(QCM), `plan` / `step` (étapes muettes), `generate_code` et `edit_code`
+(délégués à l'agent Développement existant, garde-fous inchangés),
+`check_preview` (capture hors écran et erreurs de console). Il travaille sur
+un brouillon ; l'app écrit le projet à la fin, en une seule itération avec
+Garder / Annuler. Les fichiers de code touchés (écrits, ou retirés par
+`rm`/`mv`) sont gardés avec l'entrée (`<id>.code.json`) : Annuler remet aussi
+le code. Élément visé : agent Design inchangé, sans question.
+
+- QCM : un seul appel, avant toute écriture, 1 à 3 questions ; la première
+  option est la recommandation. Réponses gardées dans `project.decisions`,
+  jamais reposées, affichées dans l'historique. Désactivable (Paramètres) :
+  la recommandation est prise.
+- Avis : sortie structurée finale de l'agent, bulle noire 12 s, « Appliquer »
+  relance l'agent avec l'instruction proposée (nouvelle itération).
+- Suppressions (page, composant, collection) : confirmation dans la carte.
+- Accueil : « Que voulez-vous créer ? » (images possibles) crée un projet dans
+  le dossier de données de l'app ; le dossier de travail est demandé à la
+  première génération du code, puis le projet y est déplacé. « Nouveau
+  projet » et « Importer de Figma » restent à côté.
+- Clés d'API : Paramètres, chiffrées par `safeStorage` (trousseau), hors du
+  projet, injectées seulement dans l'environnement du serveur d'aperçu ;
+  l'agent n'en connaît que les noms.
+
+Limites connues : une restauration ancienne remet le projet mais pas le code
+(la génération suivante régénère ce qui diffère) ; les clés ne sont pas
+injectées dans une construction lancée hors de l'app, et la cible HTML/CSS
+n'a pas de variables d'environnement ; une clé VITE_/NEXT_PUBLIC_ finit dans
+le bundle du navigateur (limite du front sans backend) ; les fichiers binaires
+écrits par l'agent ne sont pas sauvegardés pour Annuler ; les suppressions
+manuelles (hors agent) restent sans confirmation, l'historique les annule.
+
+## 2026-10-30 — Nettoyage de l'interface
+
+Problème : sur un projet réel, à 1440 px comme à 1000 px, plusieurs zones
+paraissaient cassées : cases « Questions / Avis » étirées sur toute la
+largeur, panneau droit vide de 330 px dans le design system, tableau des
+contenus coupé sous le panneau, icône de token répétée sur chaque champ,
+historique saturé de boutons « Restaurer », noms de la Structure tronqués.
+
+Décision : le panneau droit vide se replie dans le design system (le canevas
+des pages garde sa largeur stable) ; une case à cocher garde sa taille ; le
+tableau des contenus défile dans son propre conteneur, première colonne
+collante et barre horizontale visible ; le lien vers un token apparaît au
+survol ou au focus de la ligne ; « Restaurer » apparaît au survol de
+l'itération ; des séparateurs fins distinguent rail, panneaux et canevas ; les
+noms de la Structure passent en ellipsis avec 8 px d'indentation par niveau ;
+l'accueil porte le wordmark DS-Studio ; l'ombre des surfaces flottantes est
+adoucie. Les champs de valeur perdent leur contour, prennent un fond gris très
+clair (`--ui-field`) et leur texte passe à 90 % (`--ui-text-field`) ; le focus
+garde un anneau gris visible au lieu du noir.
+
+Preuves : `tsc --noEmit`, 36 tests unitaires, e2e 8/9 ; captures avant/après
+sur Test 2 à 1440 × 900 et 1000 × 640.
+
+Limites connues : l'e2e « pages » attend encore que le renommage manuel
+gagne sur la suggestion tardive de l'IA ; ce comportement est voulu, le test
+est à mettre à jour. Le panneau droit des contenus reste large quand aucun
+champ n'est sélectionné. Le chrome n'a pas de thème sombre ; « Modes » ne
+change que l'aperçu.
+
+## 2026-10-30 — Nettoyage du dossier et accueil des agents
+
+Problème : le dossier mêlait les données de la V1, des artefacts générés, un
+zip de 8 Mo, un lancement `.claude` qui visait un serveur supprimé et un sujet
+de PFE fictif ; un nouvel arrivant, ou son LLM, ne savait pas par où commencer.
+
+Décision : `.ds-studio/` déplacé dans `workspace/archives/ds-studio-v1/`
+(ignoré par git) ; `dist/`, `test-results/`, `.DS_Store` et
+`.claude/launch.json` supprimés ; `skills/caveman-main.zip` supprimé ; journaux
+et `tests/live/out/` supprimés ; `workspace/PFE.md` remplacé par
+`workspace/PROJECT.md` ; `AGENTS.md` réécrit (carte du code, commandes, règles,
+où changer quoi) ; README complété ; `tests/live/README.md` ajouté. Aucun
+module de `app/` n'était inutilisé, aucun refactor de code n'a été fait.
+
+Preuves : inventaire des imports (tous les modules de `app/` sont atteints),
+`tsc --noEmit`, 36 tests unitaires ; l'ancien `npm run check` signalait déjà le
+type d'un test live, corrigé.
+
+Limites connues : `tests/live/` reste hors CI et non suivi par git ; l'archive
+V1 n'est pas versionnée ; `skills/SKILL.md` est conservé comme outil local.
+
+## 2026-10-30 — Renommage en Studio
+
+Problème : « DS-Studio » (design system studio) enfermait le produit dans le
+design system alors qu'il couvre aussi les pages, les contenus et le code ; le
+nom était long dans le Finder, le menu et la barre de titre.
+
+Décision : nom du produit et de l'app « Studio ». Package `studio`,
+`productName`, `app.setName`, titre de fenêtre, `Studio.app`, identifiant
+`local.studio.app`, textes, README, AGENTS et PROJECT. Les identifiants
+techniques existants ne changent pas : schéma `studio://`, dossier `.studio/`,
+variables `STUDIO_*`, API `window.studio`.
+
+Preuves : `tsc --noEmit`, 36 tests unitaires ; build à refaire.
+
+Limites connues : le dossier de données par défaut devient
+`~/Library/Application Support/Studio`, donc la liste des projets récents
+repart vide ; les projets eux-mêmes sont intacts. L'ancienne `DS-Studio.app`
+reste dans `~/Applications` jusqu'à suppression manuelle. Le dossier du dépôt
+garde son nom.
+
+## 2026-10-30 — L'app installée ne s'ouvrait plus
+
+Problème : après le nettoyage, l'app installée ne démarrait plus. Sa coquille
+`DS-Studio.app` pointe vers le dépôt et charge `dist/main.js`, or `dist/` avait
+été supprimé ; Electron s'arrêtait avant d'afficher une fenêtre. Le nom avait
+aussi changé sans nouvelle app installée.
+
+Décision : `dist/` reconstruit et conservé ; `Studio.app` installée dans
+`~/Applications` avec le nom, l'icône et l'identifiant `local.studio.app` ;
+l'ancienne `DS-Studio.app` déplacée dans la corbeille ; la liste des projets
+récents copiée de `~/Library/Application Support/ds-studio` vers
+`~/Library/Application Support/Studio`. README et AGENTS rappellent que l'app
+installée charge `dist/main.js`.
+
+Preuves : lancement du bundle installé vérifié (nom `Studio`, titre `Studio`,
+accueil « Projets »), `tsc --noEmit`, 36 tests unitaires.
+
+Limite connue : l'app installée ne se reconstruit pas seule ; après une
+modification du code, `npm run build` reste nécessaire. Les clés d'API
+chiffrées, s'il y en avait, ne suivent pas le changement d'identité de l'app.
+
+## 2026-10-30 — Compte LLM global au lancement
+
+Problème : l'IA supposait une session Claude Code déjà connectée. Aucun écran
+ne permettait de choisir un compte, et les clés de `secrets.ts` sont rangées
+par projet pour le code généré, pas pour l'agent.
+
+Décision : un compte global, hors projet, dans
+`<userData>/accounts.json` (secret chiffré par `safeStorage`, extrait dans
+`app/main/vault.ts`). Cinq fournisseurs : Claude par le SDK, plus ChatGPT,
+DeepSeek, Mistral et OpenRouter par un protocole compatible OpenAI
+(`app/main/compat.ts`, `fetch` natif, aucune dépendance). Une clé est validée
+par une lecture seule de 10 s (`/v1/models`, ou `/api/v1/key` pour
+OpenRouter) ; 401/403 → `auth:key`, réseau ou 5xx → `auth:network`.
+
+Au démarrage : un compte enregistré fait foi ; sinon la session Claude Code
+est détectée sans appel payant (variables d'environnement, fichier de
+credentials, trousseau macOS), puis l'écran `Connexion` bloque l'accès aux
+projets. Claude dans le navigateur passe par `claude setup-token` (vérifié
+sur la machine : Claude Code 2.1.312, sous-commande présente, abonnement
+requis), avec une URL ouverte par l'app, 3 minutes et annulation. Un marqueur
+`account.off` empêche la détection de réactiver un compte après
+« Déconnecter ».
+
+Routage : Claude garde l'agent transversal, les outils, le QCM, les avis, les
+étapes et Figma. Les autres fournisseurs passent par un appel JSON pour le
+design system, les pages, les noms de composants et un plan de fichiers pour
+le code (chemins validés, construction puis une seule réparation). Figma est
+masqué et refusé hors Claude. Tous les handlers d'IA appellent
+`requireAuth()`.
+
+Modèles par défaut, relevés dans la documentation le 2026-10-30 :
+`gpt-6.1-sol` (OpenAI), `deepseek-v4-pro` (DeepSeek), `mistral-large-4`
+(Mistral), `openai/gpt-6.1-sol` (OpenRouter). Anthropic ne fixe pas de
+modèle. La table `app/shared/account.ts` est le seul endroit à mettre à jour.
+
+Preuves : `tsc --noEmit`, 47 tests unitaires (dont compte, coffre, requêtes
+compatibles, chemins), e2e 13/13. Les e2e existants lancent l'app avec
+`STUDIO_FAKE_AUTH: 'in'` ; le nouveau `auth.spec.ts` couvre l'écran, la clé
+acceptée, la clé refusée et « Déconnecter ».
+
+Limites connues : hors Claude, pas de QCM, d'avis ni d'étapes, et SwiftUI
+n'est pas compilé (l'aperçu s'en charge) ; le plan de code renvoie des
+fichiers complets, pas des suppressions ; `claude setup-token` dépend de
+l'abonnement et de la version de Claude Code ; un seul compte, pas de
+changement à chaud.
+
+## 2026-10-30 — Accueil centré, inspiré d'une invitation
+
+Problème : l'accueil était un formulaire large avec un en-tête chargé ; il ne
+mettait pas le geste de création au centre, et le bouton « Créer » du
+formulaire vide entrait en collision avec celui du prompt.
+
+Décision : une colonne de 480 px, un titre de 34 px (`--ui-fs-display`), un
+champ de 52 px (`--ui-control-h-lg`) et un bouton pleine largeur sous le
+champ. Deux memoji et un robot, avec deux bulles violettes (« Bonjour »,
+« Commençons »), reprennent la disposition de la référence au-dessus du titre :
+trois têtes légèrement superposées. Les memoji viennent du zip fourni, en
+512 px avec leur fond coloré d'origine, recadrés en cercle ; le dossier Apple
+est l'image fournie, en 1024 px. Les projets passent dans un menu en haut à
+droite, ouvert au survol : carte blanche, dossier Apple sur le bouton, lignes
+à icônes, dates discrètes, séparateur et actions « Nouveau projet »,
+« Ouvrir » et « Importer de Figma ». Le menu n'a pas d'en-tête. Le formulaire
+de projet vide utilise « Valider » pour ne pas concurrencer « Créer ».
+L'accueil passe sur fond blanc, sans carte ni ombre. L'écran de connexion
+reprend la même colonne : titre de 34 px, boutons de fournisseur de 52 px,
+champ et bouton pleine largeur, fond blanc sans carte.
+
+Preuves : captures à 1440 × 900 et 1000 × 640, `tsc --noEmit`, 47 tests
+unitaires, e2e 13/13.
+
+Limite connue : les memoji gardent le fond orange et rose du zip ; le dossier
+est l'image fournie ; le reste du chrome reste neutre.
+
+## 2026-11-01 — Connexion Claude : OAuth dans l'app
+
+Problème : sur une machine déjà connectée à Claude Code, l'écran `Connexion`
+pouvait rester affiché, puis « Se connecter » restait bloqué sur
+« Connexion… ». `claude setup-token` n'écrit ni URL ni jeton quand sa sortie
+est capturée (pas de terminal) et attend qu'on lui colle un code : l'app
+n'ouvrait donc rien et n'obtenait jamais de jeton. Le trousseau macOS n'est
+pas toujours lisible par l'app signée localement.
+
+Décision : la détection ajoute `claude auth status` (JSON, sans terminal,
+sans appel payant) après les vérifications existantes. La connexion navigateur
+ne passe plus par la CLI : `app/main/claude-auth.ts` fait le même OAuth public
+que la CLI (PKCE, client `9d1c250a…`, redirection
+`platform.claude.com/oauth/code/callback`, portée `user:inference`, en-tête
+`claude-cli` exigé par le point d'échange). « Se connecter » ouvre la page,
+l'écran demande le code affiché, `authClaudeCode` l'échange et range le jeton
+chiffré avec son jeton de rafraîchissement et son expiration ; le
+rafraîchissement se fait à l'expiration, sans redemander l'accord.
+
+Le champ « Code » est le seul ajout à l'écran ; « Annuler » revient en arrière.
+`STUDIO_FAKE_AUTH` couvre les deux étapes pour les e2e.
+
+Preuves : `tsc --noEmit`, 52 tests unitaires (dont PKCE, URL, code#état,
+échange et rafraîchissement), e2e 15/15 ; lancement à vide sans
+`STUDIO_FAKE_AUTH` sur une machine connectée : accueil direct.
+
+Limites connues : le point d'échange est celui de la CLI, pas une API
+documentée ; son en-tête `claude-cli` peut changer, et l'abonnement Claude
+reste requis.

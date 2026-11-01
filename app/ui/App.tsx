@@ -3,17 +3,22 @@ import {
   CaretDown,
   Code,
   Database,
-  FolderOpen,
   GearSix,
   Moon,
   Palette,
   SunHorizon,
-  Plus,
+  Trash,
   SquaresFour,
   Sun,
 } from '@phosphor-icons/react';
 import type { AiResult, Opened, Scope, StudioApi } from '../shared/api.js';
+import type { Auth } from '../shared/account.js';
+import { providerLabels } from '../shared/account.js';
+import { AuthScreen } from './Auth.js';
+import memojiOne from './assets/memoji-1.png';
+import memojiTwo from './assets/memoji-2.png';
 import { HistoryButton } from './History.js';
+import { ProjectsMenu } from './ProjectsMenu.js';
 import type { Project, ProjectEntry } from '../shared/project.js';
 import { DesignModule, FigmaDialog } from './DesignSystem.js';
 import { PagesModule } from './Pages.js';
@@ -21,6 +26,8 @@ import { ContentModule } from './Content.js';
 import { CodeModule } from './Code.js';
 import type { Update } from './components.js';
 import { PromptBar, type AiState } from './PromptBar.js';
+import { AgentLayer, idleView, type AgentView } from './Agent.js';
+import type { Settings } from '../shared/agent.js';
 import { fontsHref, type Theme } from './render.js';
 
 declare global {
@@ -38,16 +45,13 @@ const modules = [
 ] as const;
 type ModuleId = (typeof modules)[number]['id'];
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('fr-FR', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-
 export default function App() {
   const [entries, setEntries] = useState<ProjectEntry[]>([]);
   const [opened, setOpened] = useState<Opened | null>(null);
+  const [account, setAccount] = useState<Auth | null | undefined>(undefined);
   const [error, setError] = useState(false);
+  // Première action d'un projet ouvert depuis l'accueil : prompt ou Figma.
+  const [start, setStart] = useState<Start | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pending = useRef<(() => Promise<unknown>) | null>(null);
   // Dernier état connu : les réponses asynchrones (nom proposé par l'IA)
@@ -56,7 +60,12 @@ export default function App() {
   latest.current = opened;
 
   const refresh = () => api.list().then(setEntries);
-  useEffect(() => void refresh(), []);
+  useEffect(() => {
+    if (account) void refresh();
+  }, [account]);
+  useEffect(() => {
+    void api.auth().then(setAccount, () => setAccount(null));
+  }, []);
 
   // Affichage immédiat, écriture sur disque groupée ; vidée avant toute
   // action qui relit le disque ou change de projet.
@@ -89,18 +98,30 @@ export default function App() {
   }
 
   const failed = error && <p className="error">Impossible d’ouvrir</p>;
+  if (account === undefined) return <div className="boot" />;
+  if (!account) return <AuthScreen onDone={setAccount} />;
+  const canFigma = account.provider === 'anthropic';
   if (!opened)
     return (
       <Home
         entries={entries}
+        canFigma={canFigma}
         onCreate={(name) => run(() => api.create(name))}
         onOpen={(path) => run(() => api.open(path))}
+        onStart={(next) => {
+          setStart(next);
+          void run(() =>
+            api.draft(next.figma ? 'Import Figma' : 'Nouveau projet'),
+          );
+        }}
         error={failed}
       />
     );
   return (
     <Shell
       opened={opened}
+      account={account}
+      canFigma={canFigma}
       entries={entries}
       onOpen={(path) => run(() => api.open(path))}
       onHome={() => flush().then(() => setOpened(null))}
@@ -114,66 +135,107 @@ export default function App() {
         void refresh();
       }}
       onMove={() => run(() => api.move(opened.path))}
+      onMoved={(o) => {
+        latest.current = o;
+        setOpened(o);
+        void refresh();
+      }}
+      onSignOut={() => {
+        latest.current = null;
+        setOpened(null);
+        setAccount(null);
+      }}
+      start={start}
+      onStarted={() => setStart(null)}
     />
   );
 }
 
+type Start = { text: string; images: string[]; figma?: boolean };
+
 function Home(props: {
   entries: ProjectEntry[];
+  canFigma: boolean;
   onCreate: (name: string) => void;
   onOpen: (path?: string) => void;
+  onStart: (start: Start) => void;
   error: React.ReactNode;
 }) {
   const [creating, setCreating] = useState(false);
   return (
     <main className="home">
       <header className="home-head">
-        <h1>Projets</h1>
-        <button className="ghost" onClick={() => props.onOpen()}>
-          <FolderOpen /> Ouvrir
-        </button>
-        <button className="studio-primary" onClick={() => setCreating(true)}>
-          <Plus /> Nouveau projet
-        </button>
+        <span className="home-mark">Studio</span>
+        <ProjectsMenu
+          entries={props.entries}
+          canFigma={props.canFigma}
+          onOpen={props.onOpen}
+          onNew={() => setCreating(true)}
+          onFolder={() => props.onOpen()}
+          onFigma={() => props.onStart({ text: '', images: [], figma: true })}
+        />
       </header>
-      {creating && (
-        <form
-          className="home-new"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const name = new FormData(e.currentTarget).get('name') as string;
-            if (name.trim()) props.onCreate(name.trim());
-            setCreating(false);
-          }}
-        >
-          <input name="name" aria-label="Nom" placeholder="Nom" autoFocus />
-          <button className="studio-primary">Créer</button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => setCreating(false)}
+      <section className="home-hero">
+        <div className="home-art" aria-hidden="true">
+          <span className="hero-bubble bubble-left">Bonjour</span>
+          <span className="hero-avatar human">
+            <img src={memojiOne} alt="" />
+          </span>
+          <span className="hero-avatar friend">
+            <img src={memojiTwo} alt="" />
+          </span>
+          <span className="hero-avatar robot">🤖</span>
+          <span className="hero-bubble bubble-right">Commençons</span>
+        </div>
+        <h1>Que voulez-vous créer ?</h1>
+        <p className="home-lead">
+          Décrivez votre projet. Studio compose le design system, les pages et
+          le code.
+        </p>
+        <span className="home-label" aria-hidden="true">
+          Idée
+        </span>
+        <PromptBar
+          label="Que voulez-vous créer ?"
+          variant="hero"
+          submitLabel="Créer"
+          state={{ status: 'idle' }}
+          placeholder="Un site, une app…"
+          onSubmit={(text, images) => props.onStart({ text, images })}
+          onKeep={() => {}}
+          onUndo={() => {}}
+        />
+        {creating && (
+          <form
+            className="home-new"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = new FormData(e.currentTarget).get('name') as string;
+              if (name.trim()) props.onCreate(name.trim());
+              setCreating(false);
+            }}
           >
-            Annuler
-          </button>
-        </form>
-      )}
-      {props.error}
-      <ul className="home-list">
-        {props.entries.map((p) => (
-          <li key={p.path}>
-            <button className="home-item" onClick={() => props.onOpen(p.path)}>
-              <span>{p.name}</span>
-              <span className="muted">{when(p.updatedAt)}</span>
+            <input name="name" aria-label="Nom" placeholder="Nom" autoFocus />
+            <button className="studio-primary">Valider</button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setCreating(false)}
+            >
+              Annuler
             </button>
-          </li>
-        ))}
-      </ul>
+          </form>
+        )}
+        {props.error}
+      </section>
     </main>
   );
 }
 
 function Shell(props: {
   opened: Opened;
+  account: Auth;
+  canFigma: boolean;
   entries: ProjectEntry[];
   onOpen: (path: string) => void;
   onHome: () => void;
@@ -182,6 +244,11 @@ function Shell(props: {
   onFlush: () => Promise<void>;
   onReplace: (project: Project) => void;
   onMove: () => void;
+  /** Le projet a reçu son dossier pendant une action. */
+  onMoved: (o: Opened) => void;
+  onSignOut: () => void;
+  start: Start | null;
+  onStarted: () => void;
 }) {
   const { project, path } = props.opened;
   // Les polices du projet s'affichent telles quelles sur le canevas.
@@ -200,7 +267,42 @@ function Shell(props: {
   const [menu, setMenu] = useState(false);
   const [theme, setTheme] = useState<Theme>('light');
   const [ai, setAi] = useState<AiState>({ status: 'idle' });
+  const [view, setView] = useState<AgentView>(idleView);
+  const [prefs, setPrefs] = useState<Settings | null>(null);
   const settings = useRef<HTMLDialogElement>(null);
+  useEffect(() => void api.settings().then(setPrefs), []);
+  // Agent transversal : étapes, QCM, confirmations. Une étape en échec
+  // reste affichée un instant, sur une ligne.
+  useEffect(() => {
+    let clear: ReturnType<typeof setTimeout>;
+    const off = api.onAgent((e) => {
+      clearTimeout(clear);
+      if (e.kind === 'steps') setView((v) => ({ ...v, steps: e.steps }));
+      else if (e.kind === 'ask')
+        setView((v) => ({ ...v, questions: e.questions, advice: null }));
+      else if (e.kind === 'confirm')
+        setView((v) => ({ ...v, confirm: e.items, advice: null }));
+      else
+        setView((v) => {
+          const failed = v.steps.some((s) => s.state === 'failed');
+          if (failed)
+            clear = setTimeout(
+              () => setView((w) => ({ ...w, steps: [] })),
+              4000,
+            );
+          return {
+            ...v,
+            questions: null,
+            confirm: null,
+            steps: failed ? v.steps : [],
+          };
+        });
+    });
+    return () => {
+      off();
+      clearTimeout(clear);
+    };
+  }, []);
   const figma = useRef<HTMLDialogElement>(null);
   // Le menu se ferme au prochain clic, dedans comme dehors.
   useEffect(() => {
@@ -210,20 +312,42 @@ function Shell(props: {
     return () => removeEventListener('click', close);
   }, [menu]);
   // Autre projet ou autre dossier : rien ne reste en attente.
+  // Sauf un projet qui vient de recevoir son dossier : même travail en cours.
+  const moved = useRef<string | null>(null);
   useEffect(() => {
+    if (moved.current === path) return;
     setAi({ status: 'idle' });
+    setView(idleView);
   }, [path]);
+  // Depuis l'accueil : le prompt s'exécute, ou l'import Figma s'ouvre.
+  useEffect(() => {
+    const s = props.start;
+    if (!s) return;
+    props.onStarted();
+    if (s.figma) figma.current?.showModal();
+    else void runAi(() => api.design(path, s.text, {}, s.images));
+  }, []);
   const current = modules.find((m) => m.id === module)!;
 
   // L'IA applique son résultat sur le canevas ; « Garder » ou « Annuler ».
+  // L'avis éventuel apparaît ensuite, jamais en même temps qu'un QCM.
   async function runAi(task: () => Promise<AiResult>) {
     setAi({ status: 'busy' });
+    setView((v) => ({ ...v, advice: null }));
     try {
       await props.onFlush();
       const out = await task();
-      props.onReplace(out.project);
+      if (out.path) {
+        moved.current = out.path;
+        props.onMoved({ path: out.path, project: out.project });
+      } else props.onReplace(out.project);
       setAi({ status: 'review', entry: out.entry });
-    } catch {
+      if (out.advice) setView((v) => ({ ...v, advice: out.advice! }));
+    } catch (e) {
+      if (String(e).includes('auth:out')) {
+        props.onSignOut();
+        return;
+      }
       setAi({ status: 'error' });
     }
   }
@@ -238,6 +362,10 @@ function Shell(props: {
       setModule('design');
       setAi({ status: 'idle' });
     } catch (e) {
+      if (String(e).includes('auth:out')) {
+        props.onSignOut();
+        return;
+      }
       if (String(e).includes('figma:auth')) {
         setAi({ status: 'idle' });
         figma.current?.showModal();
@@ -252,24 +380,42 @@ function Shell(props: {
   }
   // Barre IA : la portée vient du module (élément sélectionné ou global).
   const bar = (scope: Scope, target?: string) => (
-    <PromptBar
-      state={ai}
-      placeholder={
-        target ? `Modifier « ${target} »` : 'Décrire une modification'
-      }
-      onSubmit={(text, images) =>
-        runAi(() => api.design(path, text, scope, images))
-      }
-      onKeep={() => setAi({ status: 'idle' })}
-      onUndo={async (entry) => {
-        setAi({ status: 'idle' });
-        props.onReplace(await api.discard(path, entry));
-      }}
-    />
+    <div className="prompt-dock">
+      <AgentLayer
+        view={view}
+        onAnswer={(a) => {
+          setView((v) => ({ ...v, questions: null }));
+          void api.answer(a);
+        }}
+        onConfirm={(ok) => {
+          setView((v) => ({ ...v, confirm: null }));
+          void api.confirm(ok);
+        }}
+        onApply={(instruction) =>
+          runAi(() => api.design(path, instruction, {}, []))
+        }
+        onDismiss={() => setView((v) => ({ ...v, advice: null }))}
+      />
+      <PromptBar
+        state={ai}
+        placeholder={
+          target ? `Modifier « ${target} »` : 'Décrire une modification'
+        }
+        onSubmit={(text, images) =>
+          runAi(() => api.design(path, text, scope, images))
+        }
+        onKeep={() => setAi({ status: 'idle' })}
+        onUndo={async (entry) => {
+          setAi({ status: 'idle' });
+          setView((v) => ({ ...v, advice: null }));
+          props.onReplace(await api.discard(path, entry));
+        }}
+      />
+    </div>
   );
 
   return (
-    <div className="shell">
+    <div className="shell" data-module={module}>
       <header className="topbar">
         <div className="switcher">
           <button
@@ -341,7 +487,9 @@ function Shell(props: {
           theme={theme}
           onSave={props.onSave}
           onUpdate={props.onUpdate}
-          onFigma={() => figma.current?.showModal()}
+          onFigma={
+            props.canFigma ? () => figma.current?.showModal() : undefined
+          }
           bar={bar}
         />
       ) : module === 'pages' ? (
@@ -366,6 +514,9 @@ function Shell(props: {
           path={path}
           onSave={props.onSave}
           onFlush={props.onFlush}
+          onMoved={props.onOpen}
+          onSignOut={props.onSignOut}
+          bar={bar}
         />
       )}
       <FigmaDialog ref={figma} project={project} onSubmit={runImport} />
@@ -393,9 +544,137 @@ function Shell(props: {
               </button>
             </div>
           </div>
+          <div className="field">
+            Compte
+            <div className="row">
+              <span className="ellipsis">
+                {providerLabels[props.account.provider]}
+              </span>
+              <button
+                type="button"
+                className="ghost"
+                onClick={async () => {
+                  await api.authOut().catch(() => {});
+                  settings.current?.close();
+                  props.onSignOut();
+                }}
+              >
+                Déconnecter
+              </button>
+            </div>
+          </div>
+          {prefs && (
+            <div className="field">
+              IA
+              <label className="field check">
+                <input
+                  type="checkbox"
+                  checked={prefs.questions}
+                  onChange={async (e) =>
+                    setPrefs(
+                      await api.setSettings({
+                        ...prefs,
+                        questions: e.target.checked,
+                      }),
+                    )
+                  }
+                />
+                Questions
+              </label>
+              <label className="field check">
+                <input
+                  type="checkbox"
+                  checked={prefs.advice}
+                  onChange={async (e) =>
+                    setPrefs(
+                      await api.setSettings({
+                        ...prefs,
+                        advice: e.target.checked,
+                      }),
+                    )
+                  }
+                />
+                Avis
+              </label>
+            </div>
+          )}
+          <Keys path={path} />
           <button className="studio-primary">Fermer</button>
         </form>
       </dialog>
+    </div>
+  );
+}
+
+// Clés d'API du code généré : la valeur part au trousseau, seul le nom reste.
+function Keys(props: { path: string }) {
+  const [names, setNames] = useState<string[]>([]);
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => void api.secrets(props.path).then(setNames), [props.path]);
+  const valid = /^[A-Z][A-Z0-9_]{1,63}$/.test(name) && !!value;
+  const put = async (n: string, v: string | null) => {
+    setFailed(false);
+    try {
+      setNames(await api.setSecret(props.path, n, v));
+      return true;
+    } catch {
+      setFailed(true);
+      return false;
+    }
+  };
+  return (
+    <div className="field">
+      Clés d’API
+      {names.length > 0 && (
+        <ul className="keys">
+          {names.map((n) => (
+            <li key={n} className="row">
+              <code className="ellipsis">{n}</code>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Supprimer ${n}`}
+                onClick={() => void put(n, null)}
+              >
+                <Trash />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="row">
+        <input
+          aria-label="Clé"
+          placeholder="VITE_API_KEY"
+          value={name}
+          onChange={(e) =>
+            setName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))
+          }
+        />
+        <input
+          type="password"
+          aria-label="Valeur"
+          placeholder="Valeur"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!valid}
+          onClick={async () => {
+            if (await put(name, value)) {
+              setName('');
+              setValue('');
+            }
+          }}
+        >
+          Ajouter
+        </button>
+      </div>
+      {failed && <span className="error">Trousseau indisponible</span>}
     </div>
   );
 }

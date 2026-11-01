@@ -26,6 +26,11 @@ const read = (files: Iterable<File>) =>
 export function PromptBar(props: {
   state: AiState;
   placeholder: string;
+  /** Nom du champ ; « Instruction » par défaut. */
+  label?: string;
+  /** « hero » : champ large et bouton pleine largeur sous le champ. */
+  variant?: 'bar' | 'hero';
+  submitLabel?: string;
   onSubmit: (text: string, images: string[]) => void;
   onKeep: () => void;
   onUndo: (entry: string) => void;
@@ -35,6 +40,7 @@ export function PromptBar(props: {
   const [over, setOver] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const { state } = props;
+  const hero = props.variant === 'hero';
   const busy = state.status === 'busy';
   const add = async (files: Iterable<File>) => {
     const urls = await read(files);
@@ -54,7 +60,7 @@ export function PromptBar(props: {
     );
   return (
     <form
-      className="prompt-bar"
+      className={hero ? 'prompt-bar prompt-hero' : 'prompt-bar'}
       data-over={over || undefined}
       onSubmit={(e) => {
         e.preventDefault();
@@ -115,7 +121,7 @@ export function PromptBar(props: {
           }}
         />
         <input
-          aria-label="Instruction"
+          aria-label={props.label ?? 'Instruction'}
           placeholder={
             busy
               ? (state.message ?? 'En cours')
@@ -134,14 +140,26 @@ export function PromptBar(props: {
             }
           }}
         />
+        {!hero && (
+          <button
+            className="icon-btn studio-primary"
+            aria-label="Envoyer"
+            disabled={busy || !text.trim()}
+          >
+            <ArrowUp />
+          </button>
+        )}
+      </div>
+      {hero && (
         <button
-          className="icon-btn studio-primary"
-          aria-label="Envoyer"
+          className="studio-primary prompt-submit"
           disabled={busy || !text.trim()}
         >
-          <ArrowUp />
+          {busy
+            ? (state.message ?? 'En cours')
+            : (props.submitLabel ?? 'Envoyer')}
         </button>
-      </div>
+      )}
     </form>
   );
 }

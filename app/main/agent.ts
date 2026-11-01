@@ -7,6 +7,8 @@ import {
 import { z } from 'zod';
 import type { Scope } from '../shared/api.js';
 import { figmaEnv, figmaServer, figmaTools, type FigmaLink } from './figma.js';
+import { accountNow, claudeEnv } from './account.js';
+import { askJson } from './compat.js';
 import { find, update } from '../shared/nodes.js';
 import {
   brokenReferences,
@@ -22,12 +24,8 @@ import {
 // élément : il ne renvoie que cet élément. Tout est validé avant d'être écrit,
 // et seule l'app écrit, dans le dossier du projet.
 
-const DESIGN = `Tu es le designer d'un projet d'application. Tu exécutes l'instruction en silence : aucune explication, aucune question, uniquement la sortie structurée. Tu ne touches qu'à ce que la portée désigne.
-
-Règles :
-- Portée globale : tu renvoies le design system complet (fondations, composants) et les pages. Garde tel quel tout ce que l'instruction ne demande pas de changer, avec les mêmes identifiants.
-- Portée élément : tu renvoies uniquement cet élément (et ses enfants), avec le même identifiant. Rien d'autre.
-- Utilise les fondations et les composants du design system : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts ; un composant s'insère par un nœud « component » qui donne son id. Une valeur libre (nombre en px, couleur #rrggbb) seulement si rien ne convient.
+// Format du projet : partagé par l'agent Design et l'agent transversal.
+export const RULES = `- Utilise les fondations et les composants du design system : gap, padding, maxWidth → spacing ; background, color, border → colors ; radius → radius ; shadow → shadows ; font → fonts ; un composant s'insère par un nœud « component » qui donne son id. Une valeur libre (nombre en px, couleur #rrggbb) seulement si rien ne convient.
 - Noms : regroupe les éléments d'une même famille en dossiers avec « dossier/nom » (ex. « Primaire/500 », « Boutons/Principal ») dès que le design system grandit.
 - Identifiants : minuscules, chiffres et tirets, en anglais court (primary, text-muted, space-4, button, home).
 - Couleurs : une valeur claire et une valeur sombre, contraste AA pour le texte. Toujours une couleur background (fond de page) et une couleur text.
@@ -38,6 +36,13 @@ Règles :
 - États d'un composant (hover, active, disabled) : patch de style par identifiant de nœud.
 - Identifiants de nœuds uniques dans chaque page et chaque composant.
 - Design system vide : crée une base complète et cohérente (couleurs sémantiques, échelle typographique, espacements, arrondis, ombres) et les composants de base utiles (bouton, bouton secondaire, champ, carte, badge…).`;
+
+export const DESIGN = `Tu es le designer d'un projet d'application. Tu exécutes l'instruction en silence : aucune explication, aucune question, uniquement la sortie structurée. Tu ne touches qu'à ce que la portée désigne.
+
+Règles :
+- Portée globale : tu renvoies le design system complet (fondations, composants) et les pages. Garde tel quel tout ce que l'instruction ne demande pas de changer, avec les mêmes identifiants.
+- Portée élément : tu renvoies uniquement cet élément (et ses enfants), avec le même identifiant. Rien d'autre.
+${RULES}`;
 
 const globalSchema = designSchema.extend({
   pages: projectSchema.shape.pages.optional(),
@@ -58,7 +63,7 @@ const media = {
 } as const;
 
 /** Instruction accompagnée d'images de référence. */
-async function* withImages(
+export async function* withImages(
   text: string,
   files: string[],
 ): AsyncIterable<SDKUserMessage> {
@@ -103,6 +108,7 @@ async function ask(
       settingSources: [],
       maxTurns: 4,
       outputFormat: { type: 'json_schema', schema: jsonSchema(schema) },
+      env: claudeEnv(),
       ...options,
     },
   })) {
@@ -131,6 +137,16 @@ export async function design(
 ): Promise<Project> {
   const send = (text: string) =>
     images.length ? withImages(text, images) : text;
+  // Hors Claude, un seul appel JSON, sans outil ni question.
+  const compat = accountNow().provider !== 'anthropic';
+  const answer = async (
+    text: string,
+    schema: z.ZodType,
+    fake?: string,
+  ): Promise<unknown> =>
+    compat
+      ? askJson(DESIGN, text, schema, images)
+      : ask(send(text), schema, fake);
   const ds = {
     foundations: project.foundations,
     components: project.components,
@@ -154,8 +170,8 @@ export async function design(
       `Portée élément. Élément à modifier :\n${JSON.stringify(node)}`,
       `Instruction : ${instruction}`,
     ].join('\n\n');
-    const out = (await ask(
-      send(prompt),
+    const out = (await answer(
+      prompt,
       elementSchema,
       process.env.STUDIO_FAKE_NODE,
     )) as {
@@ -188,8 +204,8 @@ export async function design(
     ]
       .filter(Boolean)
       .join('\n\n');
-    const out = (await ask(
-      send(prompt),
+    const out = (await answer(
+      prompt,
       globalSchema,
       process.env.STUDIO_FAKE_AGENT,
     )) as z.infer<typeof globalSchema>;
@@ -243,7 +259,7 @@ export async function importFigma(
     mcpServers: figmaServer,
     allowedTools: figmaTools,
     permissionMode: 'dontAsk',
-    env: figmaEnv,
+    env: figmaEnv(),
   })) as z.infer<typeof importSchema>;
   if (!out.found || !out.design) throw new Error('figma:notfound');
   const f = project.foundations;
@@ -270,6 +286,10 @@ const nameSchema = z.object({ name: z.string().min(1).max(40) });
 
 export async function suggestName(summary: string): Promise<string> {
   if (process.env.STUDIO_FAKE_NAME) return process.env.STUDIO_FAKE_NAME;
+  if (accountNow().provider !== 'anthropic') {
+    const out = await askJson(NAME, summary.slice(0, 4000), nameSchema);
+    return out.name.trim();
+  }
   for await (const m of query({
     prompt: summary.slice(0, 4000),
     options: {
@@ -277,6 +297,7 @@ export async function suggestName(summary: string): Promise<string> {
       tools: [],
       settingSources: [],
       maxTurns: 3,
+      env: claudeEnv(),
       outputFormat: {
         type: 'json_schema',
         schema: z.toJSONSchema(nameSchema, { target: 'draft-7' }) as Record<

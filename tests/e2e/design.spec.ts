@@ -12,6 +12,7 @@ test('design system : saisie à la main, IA, annuler puis garder', async () => {
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: dir,
       STUDIO_FAKE_AGENT: path.resolve('tests/fixtures/design.json'),
     },
@@ -20,9 +21,10 @@ test('design system : saisie à la main, IA, annuler puis garder', async () => {
   const saved = async () =>
     JSON.parse(await readFile(path.join(dir, '.studio/project.json'), 'utf8'));
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
   await expect(
     page.getByRole('button', { name: 'Importer de Figma' }),
   ).toBeVisible();
@@ -107,6 +109,7 @@ test('import Figma : lien seul, sans relecture, dans l’historique', async () =
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: dir,
       STUDIO_FAKE_FIGMA: path.resolve('tests/fixtures/figma.json'),
     },
@@ -115,9 +118,10 @@ test('import Figma : lien seul, sans relecture, dans l’historique', async () =
   const saved = async () =>
     JSON.parse(await readFile(path.join(dir, '.studio/project.json'), 'utf8'));
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
   await page.getByRole('button', { name: 'Importer de Figma' }).click();
   await expect(page.getByLabel('Token')).toHaveCount(0);
   await page

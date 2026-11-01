@@ -13,6 +13,7 @@ test('code : langage, génération incrémentale, aperçu, retouche ciblée', as
     env: {
       ...process.env,
       STUDIO_USER_DATA: path.join(root, 'data'),
+      STUDIO_FAKE_AUTH: 'in',
       STUDIO_PICK_DIRS: dir,
       STUDIO_FAKE_AGENT: path.resolve('tests/fixtures/design.json'),
       STUDIO_FAKE_GENERATE: '1',
@@ -27,9 +28,10 @@ test('code : langage, génération incrémentale, aperçu, retouche ciblée', as
       () => false,
     );
 
-  await page.getByRole('button', { name: 'Nouveau projet' }).click();
+  await page.getByRole('button', { name: 'Projets' }).hover();
+  await page.getByRole('menuitem', { name: 'Nouveau projet' }).click();
   await page.getByLabel('Nom').fill('Boulangerie');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await page.getByRole('button', { name: 'Valider' }).click();
   await page.getByLabel('Instruction').fill('Une boulangerie');
   await page.getByLabel('Instruction').press('Enter');
   await page.getByRole('button', { name: 'Garder' }).click();

@@ -14,7 +14,24 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StudioApi } from '../shared/api.js';
+import {
+  defaultSettings,
+  type AgentEvent,
+  type Answers,
+  type Settings,
+} from '../shared/agent.js';
+import { targetLabels, type Target } from '../shared/build.js';
 import { design, importFigma, suggestName } from './agent.js';
+import {
+  auth as loadAuth,
+  authClaude,
+  authClaudeCode,
+  authKey,
+  authOut,
+  requireAuth,
+} from './account.js';
+import { orchestrate, type Code, type Ui } from './orchestrator.js';
+import { moveSecrets, secretNames, setSecret } from './secrets.js';
 import { History } from './history.js';
 import {
   edit,
@@ -36,6 +53,7 @@ import {
   parseLink,
 } from './figma.js';
 import {
+  atomicWrite,
   createProject,
   moveProject,
   readProject,
@@ -44,6 +62,8 @@ import {
 } from './projects.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// Nom de l'application : menu, « À propos » et dossier de données par défaut.
+app.setName('Studio');
 // Tests : dossier de données isolé et dossiers choisis sans boîte de dialogue.
 if (process.env.STUDIO_USER_DATA)
   app.setPath('userData', process.env.STUDIO_USER_DATA);
@@ -71,6 +91,22 @@ async function pickFolder() {
   });
   return r.canceled ? null : r.filePaths[0];
 }
+// Projets créés par un prompt : rangés dans le dossier de données de l'app
+// jusqu'à la première génération du code, qui demande le vrai dossier.
+const drafts = path.join(app.getPath('userData'), 'projects');
+const isDraft = (dir: string) => path.dirname(dir) === drafts;
+/** Le dossier de travail du projet ; null si le choix est annulé. */
+async function settle(dir: string): Promise<string | null> {
+  if (!isDraft(dir)) return dir;
+  const to = await pickFolder();
+  if (!to) return null;
+  await moveProject(dir, to);
+  await recents.add(to, dir);
+  await moveSecrets(dir, to);
+  await fs.rm(dir, { recursive: true, force: true });
+  return to;
+}
+
 async function known(dir: string) {
   if (!(await recents.list()).some((p) => p.path === dir))
     throw new Error('Projet inconnu');
@@ -84,7 +120,7 @@ async function base(dir: string, project: Project) {
     await h.record(null, project, { kind: 'create', label: 'Création' });
 }
 
-type Meta = Pick<Entry, 'kind' | 'label' | 'images'>;
+type Meta = Pick<Entry, 'kind' | 'label' | 'images' | 'choices'>;
 
 // Toute écriture du projet laisse une entrée dans l'historique.
 async function commit(dir: string, project: Project, meta: Meta) {
@@ -99,11 +135,153 @@ async function withEntry(
   before: Project,
   after: Project,
   meta: Meta,
+  code: Backup = new Map(),
 ) {
   await base(dir, before);
   const project = await writeProject(dir, after);
-  const entry = await new History(dir).record(before, project, meta);
+  const history = new History(dir);
+  const entry = await history.record(before, project, meta);
+  if (code.size) await history.saveCode(entry.id, Object.fromEntries(code));
   return { project, entry: entry.id };
+}
+
+// Fichiers de code d'origine touchés par l'agent, relatifs au projet
+// (null : créé par lui).
+type Backup = Map<string, string | null>;
+async function keep(dir: string, backup: Backup, file: string) {
+  const rel = path.relative(dir, file);
+  if (!backup.has(rel))
+    backup.set(rel, await fs.readFile(file, 'utf8').catch(() => null));
+}
+async function undoCode(dir: string, backup: Backup) {
+  for (const [rel, text] of backup)
+    if (text === null) await fs.rm(path.join(dir, rel), { force: true });
+    else await atomicWrite(path.join(dir, rel), text);
+}
+
+// Réglages de l'app : QCM et bulle d'avis.
+const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+async function readSettings(): Promise<Settings> {
+  const raw = await fs.readFile(settingsFile, 'utf8').catch(() => '{}');
+  return { ...defaultSettings, ...JSON.parse(raw) };
+}
+
+// Agent transversal : l'interface répond aux QCM et aux confirmations.
+const emit = (e: AgentEvent) => win?.webContents.send('agent', e);
+let answering: ((a: Answers | null) => void) | null = null;
+let confirming: ((ok: boolean) => void) | null = null;
+const ui: Ui = {
+  steps: (steps) => emit({ kind: 'steps', steps }),
+  ask: (questions) =>
+    new Promise((ok) => {
+      answering = ok;
+      emit({ kind: 'ask', questions });
+    }),
+  confirm: (items) =>
+    new Promise((ok) => {
+      confirming = ok;
+      emit({ kind: 'confirm', items });
+    }),
+};
+
+/** Le code du projet pour l'agent transversal ; chaque fichier touché est gardé. */
+function codeOf(at: { dir: string }, backup: Backup): Code {
+  const touch = (t: Target) => async (f: string) => {
+    await keep(at.dir, backup, path.join(outDir(at.dir, t), f));
+    notify(f);
+  };
+  const state = () => path.join(at.dir, '.studio', 'build.json');
+  // Le dossier de travail est demandé à la première génération.
+  const settled = async () => {
+    const d = await settle(at.dir);
+    if (d) at.dir = d;
+    return d;
+  };
+  return {
+    async status(project) {
+      const t = project.targets[0];
+      if (!t) return 'Aucun langage';
+      const s = (await readState(at.dir))[t];
+      const keys = await secretNames(at.dir);
+      return [
+        s
+          ? `${targetLabels[t]} : ${s.ok ? 'généré' : 'en échec'} (${s.files ?? 0} fichiers)`
+          : `${targetLabels[t]} : jamais généré`,
+        keys.length &&
+          `Clés d'API (variables d'environnement) : ${keys.join(', ')}`,
+      ]
+        .filter(Boolean)
+        .join('. ');
+    },
+    async generate(project) {
+      const dir = await settled();
+      if (!dir) return 'Aucun dossier choisi : ne génère pas le code.';
+      await keep(dir, backup, state());
+      await writeProject(dir, project);
+      let failed: Target | undefined;
+      try {
+        for (const t of project.targets)
+          if (!(await generate(dir, project, t, touch(t)))[t]?.ok) failed = t;
+      } finally {
+        notify(null);
+      }
+      return failed ? `Construction ${targetLabels[failed]} en échec` : null;
+    },
+    async edit(project, instruction) {
+      const dir = await settled();
+      if (!dir) return 'Aucun dossier choisi : ne touche pas au code.';
+      await keep(dir, backup, state());
+      await writeProject(dir, project);
+      const t = project.targets[0];
+      try {
+        await edit(dir, t, instruction, {}, [], touch(t));
+        return null;
+      } catch {
+        return 'Retouche impossible';
+      } finally {
+        notify(null);
+      }
+    },
+    async check(page, width) {
+      const dir = at.dir;
+      const t = (await readProject(dir)).targets[0];
+      const out = outDir(dir, t);
+      if (t === 'swiftui') {
+        const p = await swiftPreview(dir, out);
+        return {
+          image: 'image' in p ? p.image.split(',')[1] : undefined,
+          errors: [],
+        };
+      }
+      const { url } = (await webPreview(dir, out, t)) as { url: string };
+      return capture(new URL(page, url).toString(), width);
+    },
+  };
+}
+
+/** Page rendue hors écran : capture et erreurs de la console. */
+async function capture(url: string, width: number) {
+  const w = new BrowserWindow({
+    show: false,
+    width,
+    height: 900,
+    webPreferences: { offscreen: true, sandbox: true },
+  });
+  const errors: string[] = [];
+  w.webContents.on('console-message', (e) => {
+    if (e.level === 'error') errors.push(e.message.slice(0, 300));
+  });
+  w.webContents.on('did-fail-load', (_e, _code, why) => errors.push(why));
+  try {
+    await w.loadURL(url).catch(() => {});
+    await new Promise((r) => setTimeout(r, 1000));
+    const image = (await w.webContents.capturePage())
+      .toPNG()
+      .toString('base64');
+    return { image, errors: errors.slice(0, 20) };
+  } finally {
+    w.destroy();
+  }
 }
 
 // Images jointes à une instruction : .studio/refs/<empreinte>.<ext>.
@@ -135,11 +313,23 @@ const edits = new Map<
   { out: string; originals: Map<string, string | null> }
 >();
 
-const api: Omit<StudioApi, 'onActivity'> = {
+const api: Omit<StudioApi, 'onActivity' | 'onAgent'> = {
+  auth: () => loadAuth(),
+  authKey: (provider, key) => authKey(provider, key),
+  authClaude: () => authClaude(),
+  authClaudeCode: (code) => authClaudeCode(code),
+  authOut: () => authOut(),
   list: () => recents.list(),
   async create(name) {
     const dir = await pickFolder();
     if (!dir) return null;
+    const project = await createProject(dir, name);
+    await base(dir, project);
+    await recents.add(dir);
+    return { path: dir, project };
+  },
+  async draft(name) {
+    const dir = path.join(drafts, Date.now().toString(36));
     const project = await createProject(dir, name);
     await base(dir, project);
     await recents.add(dir);
@@ -163,26 +353,99 @@ const api: Omit<StudioApi, 'onActivity'> = {
     if (!to || to === dir) return null;
     const project = await moveProject(dir, to);
     await recents.add(to, dir);
+    await moveSecrets(dir, to);
     return { path: to, project };
   },
   async design(dir, instruction, scope, images) {
     await known(dir);
+    const account = requireAuth();
     const before = await readProject(dir);
     const refs = await saveRefs(dir, images);
-    const after = await design(
-      before,
-      instruction,
-      scope,
-      refs.map((r) => path.join(dir, '.studio', r)),
-    );
-    return withEntry(dir, before, after, {
+    const files = refs.map((r) => path.join(dir, '.studio', r));
+    const meta: Meta = {
       kind: 'ai',
       label: instruction,
       ...(refs.length && { images: refs }),
-    });
+    };
+    // Élément visé : lui seul change, sans question.
+    if (scope?.node)
+      return withEntry(
+        dir,
+        before,
+        await design(before, instruction, scope, files),
+        meta,
+      );
+    // Hors Claude : un seul appel JSON, sans question, avis ni étapes.
+    if (account.provider !== 'anthropic')
+      return withEntry(
+        dir,
+        before,
+        await design(before, instruction, scope, files),
+        meta,
+      );
+    const backup: Backup = new Map();
+    const at = { dir };
+    try {
+      const out = await orchestrate({
+        project: before,
+        instruction,
+        images: files,
+        page: scope?.page,
+        settings: await readSettings(),
+        ui,
+        code: codeOf(at, backup),
+      });
+      const saved = await withEntry(
+        at.dir,
+        before,
+        out.project,
+        { ...meta, ...(out.choices.length && { choices: out.choices }) },
+        backup,
+      );
+      return {
+        ...saved,
+        advice: out.advice,
+        ...(at.dir !== dir && { path: at.dir }),
+      };
+    } catch (e) {
+      // Rien ne reste d'une exécution en échec.
+      if (backup.size) {
+        await undoCode(at.dir, backup);
+        await writeProject(at.dir, before);
+      }
+      throw e;
+    } finally {
+      answering = confirming = null;
+      emit({ kind: 'idle' });
+    }
+  },
+  async answer(answers) {
+    const fn = answering;
+    answering = null;
+    fn?.(answers);
+  },
+  async confirm(ok) {
+    const fn = confirming;
+    confirming = null;
+    fn?.(ok);
+  },
+  settings: readSettings,
+  async secrets(dir) {
+    await known(dir);
+    return secretNames(dir);
+  },
+  async setSecret(dir, name, value) {
+    await known(dir);
+    return setSecret(dir, name, value);
+  },
+  async setSettings(s) {
+    const next = { ...(await readSettings()), ...s };
+    await atomicWrite(settingsFile, JSON.stringify(next));
+    return next;
   },
   async figmaImport(dir, url) {
     await known(dir);
+    if (requireAuth().provider !== 'anthropic') throw new Error('auth:figma');
     const link = parseLink(url);
     if (!link) throw new Error('figma:notfound');
     const before = await readProject(dir);
@@ -194,13 +457,19 @@ const api: Omit<StudioApi, 'onActivity'> = {
   },
   figmaConnected: () => figmaConnected(),
   figmaConnect: () => connectFigma((url) => void shell.openExternal(url)),
-  suggestName: (summary) => suggestName(summary),
+  suggestName: (summary) => {
+    requireAuth();
+    return suggestName(summary);
+  },
   async buildState(dir) {
     await known(dir);
     return readState(dir);
   },
-  async generate(dir) {
-    await known(dir);
+  async generate(from) {
+    await known(from);
+    requireAuth();
+    const dir = await settle(from);
+    if (!dir) return null;
     const project = await readProject(dir);
     let state = await readState(dir);
     try {
@@ -209,7 +478,7 @@ const api: Omit<StudioApi, 'onActivity'> = {
     } finally {
       notify(null);
     }
-    return state;
+    return { state, path: dir };
   },
   async codeFiles(dir) {
     await known(dir);
@@ -223,6 +492,7 @@ const api: Omit<StudioApi, 'onActivity'> = {
   },
   async code(dir, instruction, scope, images) {
     await known(dir);
+    requireAuth();
     const t = await active(dir);
     const refs = await saveRefs(dir, images);
     try {
@@ -312,7 +582,8 @@ for (const [name, fn] of Object.entries(api))
     (fn as (...a: unknown[]) => unknown)(...args),
   );
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadAuth();
   protocol.handle('studio', async (req) => {
     const [, dir, ...rest] = new URL(req.url).pathname.split('/');
     const root = decodeURIComponent(dir);
@@ -333,7 +604,7 @@ app.whenReady().then(() => {
     height: Math.min(900, area.height),
     minWidth: Math.min(960, area.width),
     minHeight: Math.min(600, area.height),
-    title: 'DS-Studio',
+    title: 'Studio',
     backgroundColor: '#f5f5f5',
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),
@@ -341,6 +612,15 @@ app.whenReady().then(() => {
       sandbox: true,
     },
   });
+  if (process.env.STUDIO_DEBUG) {
+    win.webContents.on('render-process-gone', (_e, d) =>
+      console.log('[gone]', JSON.stringify(d)),
+    );
+    win.on('closed', () => console.log('[closed]'));
+    win.webContents.on('console-message', (e) =>
+      console.log('[ui]', e.level, e.message.slice(0, 300)),
+    );
+  }
   if (process.env.STUDIO_DEV_URL) win.loadURL(process.env.STUDIO_DEV_URL);
   else win.loadFile(path.join(here, 'ui', 'index.html'));
 });

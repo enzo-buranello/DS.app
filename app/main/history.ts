@@ -36,7 +36,7 @@ export class History {
   async record(
     before: Project | null,
     after: Project,
-    meta: Pick<Entry, 'kind' | 'label' | 'images'>,
+    meta: Pick<Entry, 'kind' | 'label' | 'images' | 'choices'>,
   ): Promise<Entry> {
     const list = await this.index();
     const change = before
@@ -64,8 +64,10 @@ export class History {
     };
     await atomicWrite(this.file(entry.id), JSON.stringify(after));
     list.push(entry);
-    for (const old of list.splice(0, Math.max(0, list.length - MAX)))
+    for (const old of list.splice(0, Math.max(0, list.length - MAX))) {
       await fs.rm(this.file(old.id), { force: true });
+      await fs.rm(this.code(old.id), { force: true });
+    }
     await this.save(list);
     return entry;
   }
@@ -76,12 +78,30 @@ export class History {
     );
   }
 
+  /**
+   * Fichiers de code d'origine d'une itération de l'IA (null : créé par elle),
+   * chemins relatifs au projet ; « Annuler » les remet.
+   */
+  saveCode = (id: string, files: Record<string, string | null>) =>
+    atomicWrite(this.code(id), JSON.stringify(files));
+  private code = (id: string) => path.join(this.dir, `${id}.code.json`);
+
   /** Retire une entrée et rend l'état de celle qui la précède. */
   async discard(id: string): Promise<Project | null> {
     const list = await this.index();
     const i = list.findIndex((e) => e.id === id);
     if (i < 1) return null;
     const [gone] = list.splice(i, 1);
+    const root = path.dirname(path.dirname(this.dir));
+    const code: Record<string, string | null> = await fs
+      .readFile(this.code(gone.id), 'utf8')
+      .then(JSON.parse, () => ({}));
+    for (const [rel, text] of Object.entries(code)) {
+      const file = path.join(root, rel);
+      if (text === null) await fs.rm(file, { force: true });
+      else await atomicWrite(file, text);
+    }
+    await fs.rm(this.code(gone.id), { force: true });
     await fs.rm(this.file(gone.id), { force: true });
     await this.save(list);
     return this.get(list[i - 1].id);

@@ -10,6 +10,8 @@ export type Entry = {
   scope: 'element' | 'global';
   /** Images jointes à l'instruction (« refs/… »). */
   images?: string[];
+  /** Choix faits dans le QCM, « question : réponse ». */
+  choices?: string[];
   /** Ce qui a changé : sert à regrouper les modifications manuelles. */
   target: string;
   at: string;
@@ -72,6 +74,7 @@ export function changeOf(
     }
   }
   if (json(a.collections) !== json(b.collections)) where.push('collections');
+  if (json(a.decisions) !== json(b.decisions)) where.push('decisions');
   return where.length === 1 && where[0].split(':').length === 3
     ? { scope: 'element', target: where[0] }
     : { scope: 'global', target: where.sort().join(',') };
