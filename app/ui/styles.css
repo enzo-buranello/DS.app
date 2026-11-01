@@ -1468,8 +1468,10 @@ form.prompt-bar {
 }
 .handle {
   position: absolute;
-  right: calc(var(--ui-s-2) / -2 - 1px);
-  bottom: calc(var(--ui-s-2) / -2 - 1px);
+  /* Entièrement hors du cadre : sur un petit élément, la poignée ne doit pas
+     couvrir le centre, sinon glisser l'élément déclenche un redimensionnement. */
+  right: calc(var(--ui-s-2) * -1);
+  bottom: calc(var(--ui-s-2) * -1);
   width: var(--ui-s-2);
   height: var(--ui-s-2);
   background: var(--ui-surface);
