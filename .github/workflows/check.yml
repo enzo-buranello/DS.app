@@ -22,3 +22,11 @@ jobs:
         run: xvfb-run -a npm run test:e2e
       - if: runner.os != 'Linux'
         run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: echec-${{ matrix.os }}
+          path: |
+            test-results
+            playwright-report
+          retention-days: 3
