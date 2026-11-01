@@ -139,8 +139,8 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
   await page.locator('[data-node="box-1"]').scrollIntoViewIfNeeded();
   const t = await center(page, '.sel-box');
   const b = await center(page, '[data-node="box-1"]');
-  await dragBy(page, t, b.x - t.x, b.y - t.y + 20, async () => {
-    await expect(page.locator('.marker')).toBeVisible();
+  await dragBy(page, t, b.x - t.x, b.y - t.y, async () => {
+    await expect(page.locator('.drop-into')).toBeVisible();
   });
   await expect
     .poll(async () => {
