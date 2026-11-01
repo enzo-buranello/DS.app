@@ -9,6 +9,14 @@ workspace/archives/
 tests/live/out/
 .env
 .env.*
+# Compte LLM, jetons et données locales : jamais dans le dépôt.
+accounts.json
+secrets.json
+projects.json
+.credentials.json
+*.key
+*.pem
+*.p12
 *.log
 *.tmp
 .DS_Store

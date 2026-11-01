@@ -135,6 +135,8 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
   // Changer de parent : un texte posé sur la page glisse dans le bloc.
   await tree.getByRole('button', { name: 'Page', exact: true }).click();
   await add('Texte');
+  // Écran plus petit : amener la cible dans la vue avant de calculer.
+  await page.locator('[data-node="box-1"]').scrollIntoViewIfNeeded();
   const t = await center(page, '.sel-box');
   const b = await center(page, '[data-node="box-1"]');
   await dragBy(page, t, b.x - t.x, b.y - t.y + 20, async () => {

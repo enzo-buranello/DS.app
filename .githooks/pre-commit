@@ -1,0 +1,21 @@
+#!/bin/sh
+# Garde-fou : aucun compte, jeton ou clé ne doit entrer dans un commit.
+# Actif après : git config core.hooksPath .githooks
+set -e
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+bad=$(printf '%s\n' "$staged" |
+  grep -Ei '(^|/)(accounts?|secrets?|projects?)\.json$|(^|/)\.env(\.|$)|(^|/)\.credentials\.json$|\.(pem|key|p12)$' || true)
+if [ -n "$bad" ]; then
+  echo "Commit refusé : fichier de compte ou de secret." >&2
+  echo "$bad" >&2
+  exit 1
+fi
+
+leak=$(git diff --cached -U0 --no-color |
+  grep -InE 'sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY)=[A-Za-z0-9_-]{8,}' || true)
+if [ -n "$leak" ]; then
+  echo "Commit refusé : une clé ou un jeton apparaît dans le diff." >&2
+  exit 1
+fi

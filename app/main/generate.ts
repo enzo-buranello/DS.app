@@ -253,6 +253,8 @@ export async function restore(
 /** Fichiers qu'une commande rm ou mv va retirer, relatifs au dossier. */
 export async function removed(cmd: string, out: string): Promise<string[]> {
   const files: string[] = [];
+  // Chemins relatifs en POSIX, comme project.json et l'historique.
+  const rel = (abs: string) => path.relative(out, abs).split(path.sep).join('/');
   for (const part of cmd.split('&&')) {
     const [prog, ...args] = part.trim().split(/\s+/);
     if (prog !== 'rm' && prog !== 'mv') continue;
@@ -260,13 +262,9 @@ export async function removed(cmd: string, out: string): Promise<string[]> {
     for (const a of prog === 'mv' ? paths.slice(0, -1) : paths) {
       const abs = path.resolve(out, a);
       const st = await fs.stat(abs).catch(() => null);
-      if (st?.isFile()) files.push(path.relative(out, abs));
+      if (st?.isFile()) files.push(rel(abs));
       else if (st?.isDirectory())
-        files.push(
-          ...(await listFiles(abs)).map((f) =>
-            path.relative(out, path.join(abs, f)),
-          ),
-        );
+        files.push(...(await listFiles(abs)).map((f) => rel(path.join(abs, f))));
     }
   }
   return files;
