@@ -139,7 +139,10 @@ test('pages : ajouter, glisser, éditer au clic, composant et instance', async (
   await page.locator('[data-node="box-1"]').scrollIntoViewIfNeeded();
   const t = await center(page, '.sel-box');
   const b = await center(page, '[data-node="box-1"]');
+  await page.screenshot({ path: 'test-results/drag-avant.png' });
   await dragBy(page, t, b.x - t.x, b.y - t.y, async () => {
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: 'test-results/drag-pendant.png' });
     await expect(page.locator('.drop-into')).toBeVisible();
   });
   await expect
