@@ -15,6 +15,7 @@ git clone https://github.com/enzo-buranello/DS.app.git
 cd DS.app
 node -v      # doit afficher v22.12.0 ou plus
 npm ci       # ou npm install
+git config core.hooksPath .githooks   # garde-fou anti-secrets
 npm start
 ```
 
@@ -29,6 +30,10 @@ Aucun `.env`, aucune clé, aucun réglage au build. Au premier lancement,
 Studio demande un compte LLM : une clé API (Claude, ChatGPT, DeepSeek,
 Mistral ou OpenRouter) ou Claude dans le navigateur. Le compte est gardé
 chiffré dans le trousseau du système, hors du projet.
+
+Le dépôt ne contient ni compte, ni clé, ni projet : chaque personne branche
+le sien. Si la machine a déjà une session Claude Code connectée, Studio la
+réutilise — c'est le compte de cette personne, pas celui du dépôt.
 
 ### App du Finder (macOS)
 

@@ -14,12 +14,18 @@ git clone https://github.com/enzo-buranello/DS.app.git
 cd DS.app
 node -v                 # 22.12 ou plus ; sinon npm start s'arrête
 npm ci                  # télécharge Electron (~100 Mo)
+git config core.hooksPath .githooks   # refuse comptes, .env et clés
 npm start
 ```
 
 Si `node -v` est inférieur à 22.12 : `nvm install 22 && nvm use 22`, ou
 `brew install node@22`. Aucun `.env`, aucune clé, aucun réglage au build :
 le compte LLM se saisit au premier lancement.
+
+Le dépôt est vierge : ni compte, ni clé, ni projet. Compte et projets vivent
+dans le dossier de données de l'app (`app.getPath('userData')`), jamais dans
+le dépôt. Si la machine a déjà une session Claude Code connectée, Studio la
+réutilise : c'est le compte de la personne qui installe.
 
 Raccourcis : `npm run dev` recharge l'interface ; `npm run build` compile
 dans `dist/` ; `npm run app` installe l'app Mac dans `~/Applications` (macOS
@@ -113,6 +119,9 @@ quota : `npx playwright test -c tests/live/playwright.config.ts`.
 - Écrire une valeur en dur dans le chrome de l'interface.
 - Mettre une clé, un jeton ou un secret dans `project.json`, l'historique, un
   journal, une URL ou le DOM.
+- Committer `accounts.json`, un `.env`, une clé ou un jeton : le hook
+  `.githooks/pre-commit` le refuse (l'activer avec
+  `git config core.hooksPath .githooks`).
 - Ajouter un texte d'aide, une infobulle explicative ou un second chemin pour
   la même action.
 - Laisser une écriture de l'IA sans relecture Garder / Annuler.
